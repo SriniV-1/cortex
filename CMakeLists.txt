@@ -38,6 +38,15 @@ pkg_check_modules(SIMDJSON REQUIRED IMPORTED_TARGET simdjson)
 find_package(CURL REQUIRED)
 find_package(GTest REQUIRED)
 find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED)
+
+# hiredis
+find_library(HIREDIS_LIB hiredis HINTS /opt/homebrew/lib REQUIRED)
+set(HIREDIS_INCLUDE_DIR /opt/homebrew/include)
+
+# llhttp
+find_library(LLHTTP_LIB llhttp HINTS /opt/homebrew/lib REQUIRED)
+set(LLHTTP_INCLUDE_DIR /opt/homebrew/include)
 
 # ONNXRuntime (Homebrew arm64)
 find_library(ORT_LIB onnxruntime
@@ -96,6 +105,27 @@ target_link_libraries(cortex_stream_lib PUBLIC
     cortex_analytics_lib
 )
 
+# ── Serving library (HTTP/WebSocket/Redis) ────────────────────────────────
+add_library(cortex_serving_lib STATIC
+    src/serving/KqueuePoller.cpp
+    src/serving/HttpServer.cpp
+    src/serving/RedisCache.cpp
+)
+target_include_directories(cortex_serving_lib PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
+    ${HIREDIS_INCLUDE_DIR}
+    ${LLHTTP_INCLUDE_DIR}
+)
+target_link_libraries(cortex_serving_lib PUBLIC
+    cortex_common
+    cortex_stream_lib
+    cortex_etl_lib
+    ${HIREDIS_LIB}
+    ${LLHTTP_LIB}
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
+
 # ── ETL executable ────────────────────────────────────────────────────────
 add_executable(cortex_etl src/etl/main_etl.cpp)
 target_link_libraries(cortex_etl PRIVATE cortex_etl_lib)
@@ -107,6 +137,7 @@ add_executable(cortex_tests
     tests/unit/test_nba_client.cpp
     tests/unit/test_bulk_inserter.cpp
     tests/unit/test_stream.cpp
+    tests/unit/test_serving.cpp
 )
 target_compile_definitions(cortex_tests PRIVATE
     CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
@@ -115,6 +146,7 @@ target_link_libraries(cortex_tests PRIVATE
     cortex_etl_lib
     cortex_stream_lib
     cortex_analytics_lib
+    cortex_serving_lib
     GTest::gtest
     GTest::gtest_main
 )
@@ -130,9 +162,14 @@ target_link_libraries(cortex_bench PRIVATE cortex_etl_lib)
 add_executable(cortex_throughput tests/benchmarks/bench_throughput.cpp)
 target_link_libraries(cortex_throughput PRIVATE cortex_stream_lib)
 
+# ── Analytics server ──────────────────────────────────────────────────────
+add_executable(cortex_server src/serving/main_server.cpp)
+target_link_libraries(cortex_server PRIVATE cortex_serving_lib)
+
 # ── Build info ────────────────────────────────────────────────────────────
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "C++ standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "libpqxx: ${PQXX_VERSION}")
 message(STATUS "spdlog: ${SPDLOG_VERSION}")
 message(STATUS "simdjson: ${SIMDJSON_VERSION}")
+message(STATUS "OpenSSL: ${OPENSSL_VERSION}")

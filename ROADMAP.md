@@ -42,10 +42,10 @@ The S3 endpoint requires no auth and returns clean JSON.
 | **Phase 1** | Dimension tables populated (teams/games/players) | ✅ Done | fetch_boxscore() + --populate-dimensions backfill |
 | **Phase 1** | Historical bulk load | ✅ Done | 6,637 games / 3.7M events / 30 teams / 1,080 players (2019–2025) |
 | **Phase 1** | Query benchmark (<20ms p99) | ✅ Done | game_events 3.2ms, player_season 6.3ms, game_summary 0.6ms, time_range 0.2ms |
-| **Phase 2** | Lock-free ring buffer | ⬜ Not started | include/stream/ring_buffer.hpp |
-| **Phase 2** | Stream processor | ⬜ Not started | src/stream/ |
-| **Phase 2** | Rolling window aggregations | ⬜ Not started | |
-| **Phase 2** | ONNX model integration | ⬜ Not started | src/analytics/ |
+| **Phase 2** | Lock-free ring buffer | ✅ Done | include/stream/RingBuffer.hpp — SPSC, power-of-2, cache-line padded |
+| **Phase 2** | Stream processor | ✅ Done | src/stream/StreamProcessor.cpp — jthread, ARM NEON backoff |
+| **Phase 2** | Rolling window aggregations | ✅ Done | StatAccumulator: last-N events per player×game via capped deque |
+| **Phase 2** | ONNX model integration | ✅ Done | WinProbModel: logistic regression, 5-feature input, sigmoid output |
 | **Phase 3** | kqueue I/O event loop | ⬜ Not started | src/serving/ (macOS kqueue) |
 | **Phase 3** | HTTP/WebSocket server | ⬜ Not started | src/serving/ |
 | **Phase 3** | Prometheus metrics | ⬜ Not started | |

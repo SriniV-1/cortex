@@ -41,7 +41,7 @@ The S3 endpoint requires no auth and returns clean JSON.
 | **Phase 1** | C++ ETL pipeline | ✅ Done | NBAClient + BulkInserter + main_etl |
 | **Phase 1** | Dimension tables populated (teams/games/players) | ✅ Done | fetch_boxscore() + --populate-dimensions backfill |
 | **Phase 1** | Historical bulk load | ✅ Done | 6,637 games / 3.7M events / 30 teams / 1,080 players (2019–2025) |
-| **Phase 1** | Query benchmark (<20ms p99) | ⬜ Not started | tests/benchmarks/ |
+| **Phase 1** | Query benchmark (<20ms p99) | ✅ Done | game_events 3.2ms, player_season 6.3ms, game_summary 0.6ms, time_range 0.2ms |
 | **Phase 2** | Lock-free ring buffer | ⬜ Not started | include/stream/ring_buffer.hpp |
 | **Phase 2** | Stream processor | ⬜ Not started | src/stream/ |
 | **Phase 2** | Rolling window aggregations | ⬜ Not started | |

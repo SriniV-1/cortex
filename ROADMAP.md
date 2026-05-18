@@ -33,13 +33,14 @@ The S3 endpoint requires no auth and returns clean JSON.
 | Phase | Component | Status | Notes |
 |-------|-----------|--------|-------|
 | **Phase 1** | Dependencies installed | ✅ Done | cmake 4.3, psql 15, redis, libpqxx, spdlog, simdjson, googletest |
-| **Phase 1** | NBA API endpoint verified | ✅ Done | S3 endpoint works; stats.nba.com blocked |
+| **Phase 1** | NBA API endpoint verified | ✅ Done | S3 endpoint works; stats.nba.com blocked. Pre-2019 returns 403. |
 | **Phase 1** | Project directory structure | ✅ Done | src/, include/, sql/, tests/, etc. |
 | **Phase 1** | ROADMAP.md | ✅ Done | This file |
 | **Phase 1** | CMakeLists.txt (root) | ✅ Done | All targets build clean |
 | **Phase 1** | PostgreSQL schema (native range partitioning) | ✅ Done | sql/schema.sql — PG15 on port 5433 |
 | **Phase 1** | C++ ETL pipeline | ✅ Done | NBAClient + BulkInserter + main_etl |
-| **Phase 1** | Historical bulk load (30K games) | ⬜ Not started | scripts/bootstrap_load.py or C++ |
+| **Phase 1** | Dimension tables populated (teams/games/players) | ✅ Done | fetch_boxscore() + --populate-dimensions backfill |
+| **Phase 1** | Historical bulk load | ✅ Done | 6,637 games / 3.7M events / 30 teams / 1,080 players (2019–2025) |
 | **Phase 1** | Query benchmark (<20ms p99) | ⬜ Not started | tests/benchmarks/ |
 | **Phase 2** | Lock-free ring buffer | ⬜ Not started | include/stream/ring_buffer.hpp |
 | **Phase 2** | Stream processor | ⬜ Not started | src/stream/ |
@@ -66,11 +67,11 @@ queries run <20ms p99.
 - [ ] `SELECT COUNT(*) FROM play_events` with time filter completes <20ms p99
 
 ### Scale reality check
-The spec says "50M+ events." Actual NBA data:
-- ~30K regular season games (2000–2024, ~1,200/season × 25 seasons)
-- ~450 play-by-play actions per game
-- **Realistic total: ~13.5M events**
-50M figure is unreachable with play-by-play alone. Target is 13M+ actual events.
+S3 only serves data for **2019-present** (pre-2019 returns 403). Actual corpus:
+- 6,637 games loaded (2019–2025, 6 seasons)
+- ~560 play-by-play actions per game average
+- **Actual total: 3.7M events**
+The original 50M / 13M estimates assumed full historical access. 3.7M is the real ceiling.
 
 ### Technical decisions
 - **ETL language:** C++ with libcurl + libpqxx — uses PostgreSQL COPY protocol for bulk insert

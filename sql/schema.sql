@@ -177,3 +177,17 @@ INSERT INTO seasons (season, season_str, start_date, end_date) VALUES
 ON CONFLICT (season) DO NOTHING;
 
 COMMIT;
+
+-- ── Daily event summary (materialized aggregation) ────────────────────────
+-- Pre-aggregated counts per (date, action_type) for fast time-range queries.
+-- Populated by the ETL after each bulk load; queried by the HTTP server
+-- instead of raw play_events scans for date-range aggregate endpoints.
+-- Refresh: re-run the INSERT ... ON CONFLICT after each season load.
+CREATE TABLE IF NOT EXISTS play_events_daily (
+    date        DATE        NOT NULL,
+    action_type VARCHAR(32) NOT NULL,
+    event_count INTEGER     NOT NULL DEFAULT 0,
+    PRIMARY KEY (date, action_type)
+);
+
+CREATE INDEX IF NOT EXISTS daily_date_idx ON play_events_daily (date);

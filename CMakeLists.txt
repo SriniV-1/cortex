@@ -84,6 +84,10 @@ target_link_libraries(cortex_tests PRIVATE
 include(GoogleTest)
 gtest_discover_tests(cortex_tests)
 
+# ── Query latency benchmark ───────────────────────────────────────────────
+add_executable(cortex_bench tests/benchmarks/bench_queries.cpp)
+target_link_libraries(cortex_bench PRIVATE cortex_etl_lib)
+
 # ── Build info ────────────────────────────────────────────────────────────
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "C++ standard: ${CMAKE_CXX_STANDARD}")

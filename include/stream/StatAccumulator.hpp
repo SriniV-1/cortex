@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <unordered_map>
+#include <deque>
 #include <vector>
 #include <mutex>
 #include <shared_mutex>
@@ -86,6 +87,23 @@ public:
     // Current score for a game. Thread-safe.
     std::pair<int16_t, int16_t> score(std::string_view game_id) const noexcept;
 
+    // Rolling window snapshot — last `window` scoring events for a player.
+    // Thread-safe. Returns zeros if player not seen.
+    struct RollingSnapshot {
+        int32_t window_size;  // actual events captured (may be < requested)
+        int32_t points;
+        int32_t rebounds;
+        int32_t assists;
+        int32_t turnovers;
+        int32_t fgm;
+        int32_t fga;
+        float   fg_pct;
+        float   momentum;     // points scored in last window / window * 10 (0..10)
+    };
+    RollingSnapshot rolling_stats(int32_t player_id,
+                                  std::string_view game_id,
+                                  int window = 20) const;
+
     // Total events processed
     int64_t event_count() const noexcept {
         return event_count_.load(std::memory_order_relaxed);
@@ -107,6 +125,11 @@ private:
     mutable std::shared_mutex player_mu_;
     std::unordered_map<int64_t, PlayerGameStats> player_stats_;
     // Compound key: player_id * 10^10 + game_id_suffix
+
+    // Rolling event log: last 50 events per player×game for window queries
+    static constexpr int kMaxRolling = 50;
+    struct RollingEntry { ActionType action; bool shot_made; };
+    std::unordered_map<int64_t, std::deque<RollingEntry>> rolling_log_;
 
     // team_id × game_id → stats
     mutable std::shared_mutex team_mu_;

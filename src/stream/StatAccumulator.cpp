@@ -50,7 +50,8 @@ void StatAccumulator::process(const StreamEvent& ev) noexcept {
     if (ev.player_id > 0) {
         int64_t pk = player_key(ev.player_id, game_id);
 
-        // Optimistic: try shared lock first (most entries already exist)
+        // Optimistic: try shared lock first for atomic stat updates
+        // (most entries already exist and atomics are safe under shared lock)
         {
             std::shared_lock lock(player_mu_);
             auto it = player_stats_.find(pk);
@@ -93,31 +94,85 @@ void StatAccumulator::process(const StreamEvent& ev) noexcept {
                 default:
                     break;
                 }
-                return;  // done — shared lock released
+                // shared lock released here; upgrade to exclusive for rolling log
             }
         }
 
-        // New player×game pair — upgrade to exclusive lock
-        std::unique_lock lock(player_mu_);
-        player_stats_.emplace(std::piecewise_construct,
-                              std::forward_as_tuple(pk),
-                              std::forward_as_tuple());
-        // Re-process with exclusive lock held (recursive call avoidance)
-        auto& s = player_stats_.at(pk);
-        if (ev.action_type == ActionType::Shot2pt) {
-            s.fga++;
-            if (ev.shot_made) { s.fgm++; s.points += 2; }
-        } else if (ev.action_type == ActionType::Shot3pt) {
-            s.fga++;
-            if (ev.shot_made) { s.fgm++; s.points += 3; }
-        } else if (ev.action_type == ActionType::FreeThrow) {
-            s.fta++;
-            if (ev.shot_made) { s.ftm++; s.points++; }
-        } else if (ev.action_type == ActionType::Rebound)  { s.rebounds++;  }
-        else if (ev.action_type == ActionType::Assist)     { s.assists++;   }
-        else if (ev.action_type == ActionType::Turnover)   { s.turnovers++; }
-        else if (ev.action_type == ActionType::Foul)       { s.fouls++;     }
+        // Exclusive lock: update rolling log (deque not safe under shared lock)
+        // Also handles new player×game insertion.
+        {
+            std::unique_lock lock(player_mu_);
+            // Insert stats entry if this is the first event for this player×game
+            auto [it, inserted] = player_stats_.emplace(std::piecewise_construct,
+                                                        std::forward_as_tuple(pk),
+                                                        std::forward_as_tuple());
+            if (inserted) {
+                // First-ever event: apply stats that weren't applied in shared path
+                auto& s = it->second;
+                if (ev.action_type == ActionType::Shot2pt) {
+                    s.fga++;
+                    if (ev.shot_made) { s.fgm++; s.points += 2; }
+                } else if (ev.action_type == ActionType::Shot3pt) {
+                    s.fga++;
+                    if (ev.shot_made) { s.fgm++; s.points += 3; }
+                } else if (ev.action_type == ActionType::FreeThrow) {
+                    s.fta++;
+                    if (ev.shot_made) { s.ftm++; s.points++; }
+                } else if (ev.action_type == ActionType::Rebound)  { s.rebounds++;  }
+                else if (ev.action_type == ActionType::Assist)     { s.assists++;   }
+                else if (ev.action_type == ActionType::Turnover)   { s.turnovers++; }
+                else if (ev.action_type == ActionType::Foul)       { s.fouls++;     }
+            }
+            // Append to rolling log
+            auto& log = rolling_log_[pk];
+            log.push_back({ev.action_type, ev.shot_made});
+            if (static_cast<int>(log.size()) > kMaxRolling) log.pop_front();
+        }
     }
+}
+
+// ── Rolling window query ───────────────────────────────────────────────────
+StatAccumulator::RollingSnapshot StatAccumulator::rolling_stats(
+        int32_t player_id, std::string_view game_id, int window) const {
+    int64_t pk = player_key(player_id, game_id);
+    std::shared_lock lock(player_mu_);
+
+    auto it = rolling_log_.find(pk);
+    if (it == rolling_log_.end()) return {};
+
+    const auto& log = it->second;
+    // Look at the last `window` entries (or fewer if not enough events yet)
+    int start = std::max(0, static_cast<int>(log.size()) - window);
+
+    RollingSnapshot snap{};
+    snap.window_size = static_cast<int>(log.size()) - start;
+
+    for (int i = start; i < static_cast<int>(log.size()); ++i) {
+        const auto& e = log[i];
+        switch (e.action) {
+        case ActionType::Shot2pt:
+            snap.fga++;
+            if (e.shot_made) { snap.fgm++; snap.points += 2; }
+            break;
+        case ActionType::Shot3pt:
+            snap.fga++;
+            if (e.shot_made) { snap.fgm++; snap.points += 3; }
+            break;
+        case ActionType::FreeThrow:
+            if (e.shot_made) snap.points++;
+            break;
+        case ActionType::Rebound:   snap.rebounds++;  break;
+        case ActionType::Assist:    snap.assists++;   break;
+        case ActionType::Turnover:  snap.turnovers++; break;
+        default: break;
+        }
+    }
+
+    snap.fg_pct   = snap.fga > 0 ? static_cast<float>(snap.fgm) / snap.fga : 0.0f;
+    snap.momentum = snap.window_size > 0
+                  ? static_cast<float>(snap.points) / snap.window_size * 10.0f
+                  : 0.0f;
+    return snap;
 }
 
 // ── Reader API ─────────────────────────────────────────────────────────────

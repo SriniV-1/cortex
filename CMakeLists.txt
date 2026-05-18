@@ -39,6 +39,12 @@ find_package(CURL REQUIRED)
 find_package(GTest REQUIRED)
 find_package(Threads REQUIRED)
 
+# ONNXRuntime (Homebrew arm64)
+find_library(ORT_LIB onnxruntime
+    HINTS /opt/homebrew/lib
+    REQUIRED)
+set(ORT_INCLUDE_DIR /opt/homebrew/include/onnxruntime)
+
 # ── Common header-only interface library ──────────────────────────────────
 add_library(cortex_common INTERFACE)
 target_include_directories(cortex_common INTERFACE
@@ -64,6 +70,32 @@ target_link_libraries(cortex_etl_lib PUBLIC
     CURL::libcurl
 )
 
+# ── Analytics library (ONNX win probability model) ───────────────────────
+add_library(cortex_analytics_lib STATIC
+    src/analytics/WinProbModel.cpp
+)
+target_include_directories(cortex_analytics_lib PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
+    ${ORT_INCLUDE_DIR}
+)
+target_link_libraries(cortex_analytics_lib PUBLIC
+    cortex_common
+    ${ORT_LIB}
+)
+
+# ── Stream processing library ─────────────────────────────────────────────
+add_library(cortex_stream_lib STATIC
+    src/stream/StreamProcessor.cpp
+    src/stream/StatAccumulator.cpp
+)
+target_include_directories(cortex_stream_lib PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
+)
+target_link_libraries(cortex_stream_lib PUBLIC
+    cortex_common
+    cortex_analytics_lib
+)
+
 # ── ETL executable ────────────────────────────────────────────────────────
 add_executable(cortex_etl src/etl/main_etl.cpp)
 target_link_libraries(cortex_etl PRIVATE cortex_etl_lib)
@@ -74,19 +106,29 @@ enable_testing()
 add_executable(cortex_tests
     tests/unit/test_nba_client.cpp
     tests/unit/test_bulk_inserter.cpp
+    tests/unit/test_stream.cpp
+)
+target_compile_definitions(cortex_tests PRIVATE
+    CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 target_link_libraries(cortex_tests PRIVATE
     cortex_etl_lib
+    cortex_stream_lib
+    cortex_analytics_lib
     GTest::gtest
     GTest::gtest_main
 )
 
 include(GoogleTest)
-gtest_discover_tests(cortex_tests)
+gtest_discover_tests(cortex_tests DISCOVERY_TIMEOUT 30)
 
 # ── Query latency benchmark ───────────────────────────────────────────────
 add_executable(cortex_bench tests/benchmarks/bench_queries.cpp)
 target_link_libraries(cortex_bench PRIVATE cortex_etl_lib)
+
+# ── Throughput benchmark ──────────────────────────────────────────────────
+add_executable(cortex_throughput tests/benchmarks/bench_throughput.cpp)
+target_link_libraries(cortex_throughput PRIVATE cortex_stream_lib)
 
 # ── Build info ────────────────────────────────────────────────────────────
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")

@@ -47,7 +47,12 @@ TEST_F(BulkInserterTest, InsertAndSkipDuplicate) {
     const std::string game_id = "0020099001";  // synthetic test game
 
     // Ensure team exists to satisfy FK
-    inserter.ensure_team(1610612738, "BOS");
+    cortex::etl::TeamInfo t;
+    t.team_id = 1610612738;
+    t.tricode = "BOS";
+    t.name    = "Celtics";
+    t.city    = "Boston";
+    inserter.ensure_team(t);
 
     auto pbp = make_pbp(game_id, 50);
     int64_t n1 = inserter.bulk_insert_play_by_play(pbp, 2009);

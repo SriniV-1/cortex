@@ -178,6 +178,37 @@ ON CONFLICT (season) DO NOTHING;
 
 COMMIT;
 
+-- ── Player game stats (view over play_events) ────────────────────────────
+-- Aggregates per-player per-game box-score stats from raw play_events.
+-- Used by GET /players/{id}/season (sums across all games for that player).
+--
+-- Note: assists are not tracked as a separate action in the NBA feed;
+-- they appear in shot-event descriptions. assists column is always 0.
+CREATE OR REPLACE VIEW player_game_stats AS
+SELECT
+    player_id,
+    game_id,
+    SUM(CASE
+        WHEN action_type = '2pt'       AND description NOT LIKE 'MISS%' THEN 2
+        WHEN action_type = '3pt'       AND description NOT LIKE 'MISS%' THEN 3
+        WHEN action_type = 'freethrow' AND description NOT LIKE 'MISS%' THEN 1
+        ELSE 0
+    END)                                                            AS points,
+    COUNT(*) FILTER (WHERE action_type = 'rebound')                AS rebounds,
+    0::BIGINT                                                       AS assists,
+    COUNT(*) FILTER (WHERE action_type = 'steal')                  AS steals,
+    COUNT(*) FILTER (WHERE action_type = 'block')                  AS blocks,
+    COUNT(*) FILTER (WHERE action_type = 'turnover')               AS turnovers,
+    COUNT(*) FILTER (WHERE action_type IN ('2pt', '3pt'))          AS fga,
+    COUNT(*) FILTER (WHERE action_type IN ('2pt', '3pt')
+                     AND description NOT LIKE 'MISS%')             AS fgm,
+    COUNT(*) FILTER (WHERE action_type = 'freethrow')              AS fta,
+    COUNT(*) FILTER (WHERE action_type = 'freethrow'
+                     AND description NOT LIKE 'MISS%')             AS ftm
+FROM play_events
+WHERE player_id IS NOT NULL
+GROUP BY player_id, game_id;
+
 -- ── Daily event summary (materialized aggregation) ────────────────────────
 -- Pre-aggregated counts per (date, action_type) for fast time-range queries.
 -- Populated by the ETL after each bulk load; queried by the HTTP server

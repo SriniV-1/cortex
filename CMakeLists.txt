@@ -68,6 +68,7 @@ target_link_libraries(cortex_common INTERFACE
 add_library(cortex_etl_lib STATIC
     src/etl/NBAClient.cpp
     src/etl/BulkInserter.cpp
+    src/etl/LiveIngestor.cpp
 )
 target_include_directories(cortex_etl_lib PUBLIC
     ${CMAKE_SOURCE_DIR}/include

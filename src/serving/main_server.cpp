@@ -12,6 +12,7 @@
 #include "stream/StreamProcessor.hpp"
 #include "stream/StatAccumulator.hpp"
 #include "analytics/WinProbModel.hpp"
+#include "etl/LiveIngestor.hpp"
 #include "common/Logger.hpp"
 
 #include <algorithm>
@@ -27,6 +28,7 @@ using namespace cortex;
 using namespace cortex::stream;
 using namespace cortex::serving;
 using namespace cortex::analytics;
+using namespace cortex::etl;
 
 // Graceful shutdown
 static std::atomic<bool> g_shutdown{false};
@@ -39,10 +41,12 @@ static void handle_signal(int /*sig*/) {
 
 int main(int argc, char** argv) {
     // ── Config from env / args ────────────────────────────────────────────
-    uint16_t    port       = 8080;
-    std::string db_conn    = "host=localhost port=5433 dbname=cortex";
-    std::string redis_host = "127.0.0.1";
-    int         redis_port = 6379;
+    uint16_t    port             = 8080;
+    std::string db_conn          = "host=localhost port=5433 dbname=cortex";
+    std::string redis_host       = "127.0.0.1";
+    int         redis_port       = 6379;
+    bool        enable_live      = false;
+    int         poll_interval_ms = 30'000;
 
     std::string model_path = "data/models/win_prob.onnx";
 
@@ -55,6 +59,10 @@ int main(int argc, char** argv) {
             redis_host = argv[++i];
         if (std::strcmp(argv[i], "--model") == 0 && i + 1 < argc)
             model_path = argv[++i];
+        if (std::strcmp(argv[i], "--live") == 0)
+            enable_live = true;
+        if (std::strcmp(argv[i], "--poll-interval") == 0 && i + 1 < argc)
+            poll_interval_ms = std::atoi(argv[++i]);
     }
 
     auto log = cortex::get_logger("main");
@@ -132,6 +140,16 @@ int main(int argc, char** argv) {
             server.broadcast(gid, std::string(buf, n));
     });
 
+    // ── Live ingestion (optional) ─────────────────────────────────────────
+    std::unique_ptr<LiveIngestor> ingestor;
+    if (enable_live) {
+        ingestor = std::make_unique<LiveIngestor>(ring, poll_interval_ms);
+        ingestor->start();
+        log->info("LiveIngestor started (poll interval: {}ms)", poll_interval_ms);
+    } else {
+        log->info("Live ingestion disabled (pass --live to enable)");
+    }
+
     // ── Signals ───────────────────────────────────────────────────────────
     struct sigaction sa{};
     sa.sa_handler = handle_signal;
@@ -141,6 +159,7 @@ int main(int argc, char** argv) {
     log->info("Server ready. Ctrl+C to stop.");
     server.run();   // blocks until stop()
 
+    if (ingestor) ingestor->stop();
     proc.stop();
     log->info("Shutdown complete.");
     return 0;

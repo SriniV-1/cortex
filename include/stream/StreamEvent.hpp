@@ -71,8 +71,9 @@ struct alignas(64) StreamEvent {
     bool        shot_made      = false;
     bool        is_fast_break  = false;
 
-    // Padding to reach 128 bytes (keeps pairs of events in one cache line).
-    uint8_t _pad[2]            = {};
+    // Seconds remaining in the current period (populated from clock field).
+    // 0 = unknown. Used by win probability model.
+    uint16_t    clock_secs     = 0;
 };
 
 static_assert(sizeof(StreamEvent) <= 128, "StreamEvent too large for cache efficiency");

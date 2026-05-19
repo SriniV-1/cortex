@@ -165,6 +165,7 @@ target_link_libraries(cortex_throughput PRIVATE cortex_stream_lib)
 # ── Analytics server ──────────────────────────────────────────────────────
 add_executable(cortex_server src/serving/main_server.cpp)
 target_link_libraries(cortex_server PRIVATE cortex_serving_lib)
+target_include_directories(cortex_server PRIVATE ${ORT_INCLUDE_DIR})
 
 # ── WebSocket load test ───────────────────────────────────────────────────
 add_executable(cortex_ws_load tests/benchmarks/bench_ws_load.cpp)

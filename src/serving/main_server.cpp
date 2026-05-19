@@ -11,8 +11,10 @@
 #include "stream/StreamEvent.hpp"
 #include "stream/StreamProcessor.hpp"
 #include "stream/StatAccumulator.hpp"
+#include "analytics/WinProbModel.hpp"
 #include "common/Logger.hpp"
 
+#include <algorithm>
 #include <csignal>
 #include <atomic>
 #include <thread>
@@ -24,6 +26,7 @@
 using namespace cortex;
 using namespace cortex::stream;
 using namespace cortex::serving;
+using namespace cortex::analytics;
 
 // Graceful shutdown
 static std::atomic<bool> g_shutdown{false};
@@ -41,6 +44,8 @@ int main(int argc, char** argv) {
     std::string redis_host = "127.0.0.1";
     int         redis_port = 6379;
 
+    std::string model_path = "data/models/win_prob.onnx";
+
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--port") == 0 && i + 1 < argc)
             port = static_cast<uint16_t>(std::atoi(argv[++i]));
@@ -48,6 +53,8 @@ int main(int argc, char** argv) {
             db_conn = argv[++i];
         if (std::strcmp(argv[i], "--redis") == 0 && i + 1 < argc)
             redis_host = argv[++i];
+        if (std::strcmp(argv[i], "--model") == 0 && i + 1 < argc)
+            model_path = argv[++i];
     }
 
     auto log = cortex::get_logger("main");
@@ -57,6 +64,15 @@ int main(int argc, char** argv) {
     RingBuffer<StreamEvent> ring(65536);
     StatAccumulator         accumulator;
     RedisCache              cache(redis_host, redis_port);
+
+    // Win probability model (optional — degrades gracefully if file missing)
+    std::unique_ptr<WinProbModel> win_prob_model;
+    try {
+        win_prob_model = std::make_unique<WinProbModel>(model_path);
+        log->info("Win probability model loaded from {}", model_path);
+    } catch (const std::exception& e) {
+        log->warn("Win probability model unavailable: {} — broadcasting without win_prob", e.what());
+    }
 
     // ── Stream processor ──────────────────────────────────────────────────
     StreamProcessor proc(ring, accumulator);
@@ -72,17 +88,46 @@ int main(int argc, char** argv) {
     // Wire StreamProcessor events → WebSocket broadcast
     proc.start([&](const StreamEvent& ev) {
         if (ev.player_id <= 0) return;
-        // Build minimal JSON event for connected WebSocket clients
-        char buf[256];
         std::string gid(ev.game_id.data());
-        int n = std::snprintf(buf, sizeof(buf),
-            R"({"event":"play","game_id":"%s","player_id":%d,"action":%d,"shot_made":%s,"score_home":%d,"score_away":%d})",
-            gid.c_str(),
-            ev.player_id,
-            static_cast<int>(ev.action_type),
-            ev.shot_made ? "true" : "false",
-            ev.score_home,
-            ev.score_away);
+
+        // Compute win probability if model is available
+        float wp = -1.0f;
+        if (win_prob_model && win_prob_model->loaded()) {
+            WinProbInput wpi{};
+            wpi.score_diff     = static_cast<float>(ev.score_home - ev.score_away);
+            int q = ev.period > 0 ? static_cast<int>(ev.period) : 1;
+            wpi.quarter        = static_cast<float>(q);
+            // Total seconds remaining = full periods left × 720s + current period clock
+            int periods_left   = std::max(0, 4 - q);
+            wpi.sec_remaining  = static_cast<float>(periods_left * 720 + ev.clock_secs);
+            wpi.home_advantage = 1.0f;
+            wpi.momentum       = 0.0f;  // simple broadcast: no rolling window here
+            try { wp = win_prob_model->predict(wpi); }
+            catch (...) { wp = -1.0f; }
+        }
+
+        char buf[320];
+        int n;
+        if (wp >= 0.0f) {
+            n = std::snprintf(buf, sizeof(buf),
+                R"({"event":"play","game_id":"%s","player_id":%d,"action":%d,"shot_made":%s,"score_home":%d,"score_away":%d,"win_prob":%.4f})",
+                gid.c_str(),
+                ev.player_id,
+                static_cast<int>(ev.action_type),
+                ev.shot_made ? "true" : "false",
+                ev.score_home,
+                ev.score_away,
+                static_cast<double>(wp));
+        } else {
+            n = std::snprintf(buf, sizeof(buf),
+                R"({"event":"play","game_id":"%s","player_id":%d,"action":%d,"shot_made":%s,"score_home":%d,"score_away":%d})",
+                gid.c_str(),
+                ev.player_id,
+                static_cast<int>(ev.action_type),
+                ev.shot_made ? "true" : "false",
+                ev.score_home,
+                ev.score_away);
+        }
         if (n > 0)
             server.broadcast(gid, std::string(buf, n));
     });

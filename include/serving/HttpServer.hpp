@@ -21,6 +21,7 @@
 //    since they are indexed and sub-millisecond)
 
 #include "IOPoller.hpp"
+#include "serving/RedisCache.hpp"
 #include "stream/StatAccumulator.hpp"
 #include "stream/StreamEvent.hpp"
 
@@ -71,6 +72,7 @@ public:
     // Injected dependencies — set by HttpServer before registering with poller
     cortex::stream::StatAccumulator* accumulator = nullptr;
     pqxx::connection*                db_conn     = nullptr;
+    RedisCache*                      cache       = nullptr;
 
     // Called from llhttp static callbacks — must remain accessible
     void process_http_request(const std::string& method,
@@ -128,7 +130,9 @@ public:
         std::string host        = "0.0.0.0";
         uint16_t    port        = 8080;
         int         backlog     = 128;
-        std::string db_conn_str;   // libpqxx connection string
+        std::string db_conn_str;        // libpqxx connection string
+        std::string redis_host  = "127.0.0.1";
+        int         redis_port  = 6379;
     };
 
     explicit HttpServer(Config cfg,
@@ -163,6 +167,8 @@ private:
 
     // Shared DB connection (all queries from poller thread — no lock needed)
     std::unique_ptr<pqxx::connection>        db_;
+    // Redis cache (1-min TTL on aggregation results)
+    std::unique_ptr<RedisCache>              cache_;
 };
 
 } // namespace cortex::serving

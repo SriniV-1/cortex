@@ -46,10 +46,11 @@ The S3 endpoint requires no auth and returns clean JSON.
 | **Phase 2** | Stream processor | ✅ Done | src/stream/StreamProcessor.cpp — jthread, ARM NEON backoff |
 | **Phase 2** | Rolling window aggregations | ✅ Done | StatAccumulator: last-N events per player×game via capped deque |
 | **Phase 2** | ONNX model integration | ✅ Done | WinProbModel: logistic regression, 5-feature input, sigmoid output |
-| **Phase 3** | kqueue I/O event loop | ⬜ Not started | src/serving/ (macOS kqueue) |
-| **Phase 3** | HTTP/WebSocket server | ⬜ Not started | src/serving/ |
-| **Phase 3** | Prometheus metrics | ⬜ Not started | |
-| **Phase 3** | Redis caching layer | ⬜ Not started | |
+| **Phase 3** | kqueue I/O event loop | ✅ Done | KqueuePoller: edge-triggered, pipe wakeup, 50ms timeout |
+| **Phase 3** | HTTP/WebSocket server | ✅ Done | llhttp parsing, WebSocket RFC 6455, /health /stats /players /live /metrics |
+| **Phase 3** | Prometheus metrics | ✅ Done | GET /metrics — cortex_events_processed counter |
+| **Phase 3** | Redis caching layer | ✅ Done | RedisCache: cache-aside on /stats, 60s TTL, graceful degradation |
+| **Phase 3** | Load test: 1000 WS clients | ✅ Done | p99 = 15.6ms (target: <20ms) — bench_ws_load |
 
 ---
 

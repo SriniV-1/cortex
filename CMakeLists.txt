@@ -166,6 +166,10 @@ target_link_libraries(cortex_throughput PRIVATE cortex_stream_lib)
 add_executable(cortex_server src/serving/main_server.cpp)
 target_link_libraries(cortex_server PRIVATE cortex_serving_lib)
 
+# ── WebSocket load test ───────────────────────────────────────────────────
+add_executable(cortex_ws_load tests/benchmarks/bench_ws_load.cpp)
+target_link_libraries(cortex_ws_load PRIVATE cortex_serving_lib)
+
 # ── Build info ────────────────────────────────────────────────────────────
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "C++ standard: ${CMAKE_CXX_STANDARD}")

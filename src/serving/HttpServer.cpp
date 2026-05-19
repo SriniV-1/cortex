@@ -296,6 +296,16 @@ void Connection::process_http_request(const std::string& method,
         if (!accumulator) { send_response(500, "application/json",
                                            R"({"error":"no accumulator"})", false); return; }
 
+        // Cache-aside: try Redis first (1-min TTL for live game data)
+        const std::string cache_key = "cortex:stats:" + game_id;
+        if (cache) {
+            auto cached = cache->get(cache_key);
+            if (cached) {
+                send_response(200, "application/json", *cached, false);
+                return;
+            }
+        }
+
         auto [home, away] = accumulator->score(game_id);
         std::ostringstream j;
         j << "{\"game_id\":" << json_str(game_id)
@@ -303,7 +313,12 @@ void Connection::process_http_request(const std::string& method,
           << ",\"score_away\":" << away
           << ",\"events_processed\":" << accumulator->event_count()
           << "}";
-        send_response(200, "application/json", j.str(), false);
+        const std::string body = j.str();
+
+        // Store in Redis for 60s
+        if (cache) cache->set(cache_key, body, std::chrono::seconds{60});
+
+        send_response(200, "application/json", body, false);
         return;
     }
 
@@ -443,7 +458,9 @@ void Connection::ws_send(std::string payload) {
         std::lock_guard lock(ws_out_mu_);
         ws_out_queue_.push(std::move(frame));
     }
-    poller_.wakeup();  // wake event loop to flush
+    // Re-register write interest so kqueue fires EVFILT_WRITE to flush.
+    // Safe to call from any thread — kevent(2) is thread-safe.
+    poller_.modify(fd_, IOEvent::Readable | IOEvent::Writable);
 }
 
 void Connection::ws_flush_outbound() {
@@ -567,6 +584,9 @@ HttpServer::HttpServer(Config cfg, cortex::stream::StatAccumulator& accumulator)
             log->warn("DB unavailable: {}", e.what());
         }
     }
+
+    // Redis cache (gracefully degrades if unavailable)
+    cache_ = std::make_unique<RedisCache>(cfg_.redis_host, cfg_.redis_port);
 }
 
 HttpServer::~HttpServer() {
@@ -611,6 +631,7 @@ void HttpServer::accept_connection() {
         auto conn = std::make_unique<Connection>(cfd, *poller_);
         conn->accumulator = &accumulator_;
         conn->db_conn     = db_.get();
+        conn->cache       = cache_.get();
 
         Connection* raw = conn.get();
 

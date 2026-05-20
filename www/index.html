@@ -356,6 +356,27 @@
   .win-prob-banner .wp-home-fill { background: linear-gradient(90deg, #4ade80, #22c55e); }
   .win-prob-banner .wp-away-fill { background: linear-gradient(90deg, #f87171, #ef4444); }
   .wp-sides { display: flex; justify-content: space-between; font-size: 10px; opacity: 0.6; margin-top: 2px; }
+
+  /* ── Elo rankings ───────────────────────────────────────────────────────── */
+  .elo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+  .elo-team {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: var(--radius-sm);
+    background: var(--bg); border: 1px solid var(--border);
+    transition: transform 0.12s, box-shadow 0.12s;
+  }
+  .elo-team:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+  .elo-rank {
+    font-family: var(--display); font-size: 22px; color: var(--dim);
+    min-width: 28px; text-align: center;
+  }
+  .elo-rank.top3 { color: var(--orange); }
+  .elo-info { flex: 1; min-width: 0; }
+  .elo-tricode { font-weight: 700; font-size: 14px; color: var(--text); }
+  .elo-rating { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--purple); }
+  .elo-record { font-size: 10px; color: var(--muted); }
+  .elo-bar-outer { width: 40px; height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .elo-bar-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--green), var(--teal)); }
 </style>
 </head>
 <body>
@@ -480,11 +501,13 @@
       </div>
     </div>
     <div class="sim-body">
-      <div class="sim-controls">
+      <div class="sim-controls" style="grid-template-columns: repeat(3, 1fr) auto;">
         <div class="sim-field"><label>Home Score</label><input type="number" id="sim-home" value="105" min="0" max="200"></div>
         <div class="sim-field"><label>Away Score</label><input type="number" id="sim-away" value="98" min="0" max="200"></div>
         <div class="sim-field"><label>Quarter</label><input type="number" id="sim-period" value="4" min="1" max="4"></div>
         <div class="sim-field"><label>Clock (sec)</label><input type="number" id="sim-clock" value="180" min="0" max="720"></div>
+        <div class="sim-field"><label>Home Team</label><input type="text" id="sim-home-team" value="OKC" maxlength="3" style="text-transform:uppercase"></div>
+        <div class="sim-field"><label>Away Team</label><input type="text" id="sim-away-team" value="BOS" maxlength="3" style="text-transform:uppercase"></div>
         <div class="sim-btn-wrap" style="display:flex;align-items:flex-end;"><button class="sim-btn" id="sim-btn" onclick="runSimilarity()">🔍 Find Similar</button></div>
       </div>
       <div class="sim-meta" id="sim-meta"></div>
@@ -492,6 +515,18 @@
       <div class="sim-results" id="sim-results">
         <div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Enter a game state and click Find Similar.</div>
       </div>
+    </div>
+  </div>
+
+  <!-- Team Power Rankings (Elo) -->
+  <div class="card" id="elo-panel">
+    <div class="section-head">
+      <div class="section-title">💪 Team Power Rankings</div>
+      <span class="section-badge" id="elo-badge" style="background:var(--green-lt);color:var(--green);">Elo System</span>
+    </div>
+    <div id="elo-container">
+      <div class="skeleton" style="width:100%"></div><div class="skeleton" style="width:90%"></div>
+      <div class="skeleton" style="width:95%"></div>
     </div>
   </div>
 
@@ -727,7 +762,7 @@ async function runSimilarity() {
 // ── Populate sim from live stream ──
 const _orig = addStreamEvent;
 window.addStreamEvent = function(ev) { _orig(ev); if (ev.score_home!==undefined) { const h=document.getElementById('sim-home'),a=document.getElementById('sim-away'); if (h&&!h.dataset.userEdited) { h.value=ev.score_home; a.value=ev.score_away; } } };
-document.querySelectorAll('#sim-home,#sim-away,#sim-period,#sim-clock').forEach(el => { el.addEventListener('input',()=>{el.dataset.userEdited='1';}); });
+document.querySelectorAll('#sim-home,#sim-away,#sim-period,#sim-clock,#sim-home-team,#sim-away-team').forEach(el => { el.addEventListener('input',()=>{el.dataset.userEdited='1';}); });
 
 // ── Player search ──
 let playerSearchTimeout = null;
@@ -817,33 +852,110 @@ gameSearchInput.addEventListener('focus', () => {
     gameSearchResults.classList.add('open');
 });
 
-// ── Win probability from similarity results ──
+// ── Win probability from similarity results + Elo ──
+let eloRatings = {}; // tricode → {rating, wins, losses}
+async function fetchEloMap() {
+  try {
+    const r = await fetch(API + '/api/elo');
+    if (!r.ok) return;
+    const d = await r.json();
+    (d.teams || []).forEach(t => { eloRatings[t.tricode] = t; });
+  } catch {}
+}
+
 function renderWinProb(results) {
   const container = document.getElementById('win-prob-container');
   if (!results || results.length === 0) { container.innerHTML = ''; return; }
+
+  // Historical win probability from similar games
   const homeWins = results.filter(r => r.home_won).length;
   const total = results.length;
-  const homePct = Math.round((homeWins / total) * 100);
-  const awayPct = 100 - homePct;
+  const histPct = Math.round((homeWins / total) * 100);
+
+  // Elo-based win probability (if teams specified)
+  const homeTeam = (document.getElementById('sim-home-team').value || '').toUpperCase().trim();
+  const awayTeam = (document.getElementById('sim-away-team').value || '').toUpperCase().trim();
+  const homeElo = eloRatings[homeTeam];
+  const awayElo = eloRatings[awayTeam];
+
+  let eloPct = null;
+  let eloHtml = '';
+  if (homeElo && awayElo) {
+    // Standard Elo expected score with 100-point home advantage
+    const diff = (homeElo.rating + 100) - awayElo.rating;
+    eloPct = Math.round(100 / (1 + Math.pow(10, -diff / 400)));
+    eloHtml = `<div style="display:flex;align-items:center;gap:12px;margin-top:10px;padding:10px 16px;background:var(--purple-lt);border-radius:var(--radius-sm);font-size:12px;">
+      <span style="font-weight:700;color:var(--purple);">Elo Strength:</span>
+      <span>${homeTeam} <span style="font-family:var(--mono);font-weight:700">${Math.round(homeElo.rating)}</span> (${homeElo.wins}W-${homeElo.losses}L)</span>
+      <span style="color:var(--dim)">vs</span>
+      <span>${awayTeam} <span style="font-family:var(--mono);font-weight:700">${Math.round(awayElo.rating)}</span> (${awayElo.wins}W-${awayElo.losses}L)</span>
+      <span style="margin-left:auto;font-weight:700;color:var(--purple);">Elo: ${eloPct}% home</span>
+    </div>`;
+  }
+
+  // Combined probability (weighted average: 60% historical, 40% Elo if available)
+  const combinedPct = eloPct !== null ? Math.round(0.6 * histPct + 0.4 * eloPct) : histPct;
+  const awayPct = 100 - combinedPct;
+
   container.innerHTML = `<div class="win-prob-banner">
     <div>
-      <div class="wp-label">Home Win Prob</div>
-      <div class="wp-value" style="color:#4ade80">${homePct}%</div>
+      <div class="wp-label">${homeTeam || 'Home'} Win Prob</div>
+      <div class="wp-value" style="color:#4ade80">${combinedPct}%</div>
     </div>
     <div style="flex:1">
       <div class="wp-bar-outer">
-        <div class="wp-bar-fill wp-home-fill" style="width:${homePct}%"></div>
+        <div class="wp-bar-fill wp-home-fill" style="width:${combinedPct}%"></div>
       </div>
-      <div class="wp-sides"><span>Home ${homePct}%</span><span>Away ${awayPct}%</span></div>
+      <div class="wp-sides"><span>${homeTeam || 'Home'} ${combinedPct}%</span><span>${awayTeam || 'Away'} ${awayPct}%</span></div>
     </div>
     <div style="text-align:right">
-      <div class="wp-label">Away Win Prob</div>
+      <div class="wp-label">${awayTeam || 'Away'} Win Prob</div>
       <div class="wp-value" style="color:#f87171">${awayPct}%</div>
     </div>
-  </div>`;
+  </div>
+  ${eloPct !== null ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;margin-bottom:8px;">Combined: 60% historical (${histPct}%) + 40% Elo (${eloPct}%)</div>` : ''}
+  ${eloHtml}`;
 }
 
-refresh(); checkIndexStatus(); setInterval(refresh, 30_000);
+fetchEloMap();
+
+// ── Elo rankings ──
+async function loadElo() {
+  const container = document.getElementById('elo-container');
+  try {
+    const r = await fetch(API + '/api/elo');
+    if (!r.ok) { container.innerHTML = '<div style="color:var(--muted);font-size:12px;">Elo ratings building…</div>'; return; }
+    const data = await r.json();
+    const teams = data.teams || [];
+    if (teams.length === 0) { container.innerHTML = '<div style="color:var(--muted);font-size:12px;">No ratings available</div>'; return; }
+    const maxRating = teams[0].rating;
+    const minRating = teams[teams.length - 1].rating;
+    const range = maxRating - minRating || 1;
+    document.getElementById('elo-badge').textContent = `${data.games_processed.toLocaleString()} games analyzed`;
+    container.innerHTML = '<div class="elo-grid">' + teams.map(t => {
+      const pct = Math.round(((t.rating - minRating) / range) * 100);
+      const rankClass = t.rank <= 3 ? 'elo-rank top3' : 'elo-rank';
+      return `<div class="elo-team">
+        <span class="${rankClass}">${t.rank}</span>
+        <div class="elo-info">
+          <div class="elo-tricode">${t.tricode} <span class="elo-rating">${Math.round(t.rating)}</span></div>
+          <div class="elo-record">${t.wins}W – ${t.losses}L</div>
+        </div>
+        <div class="elo-bar-outer"><div class="elo-bar-fill" style="width:${pct}%"></div></div>
+      </div>`;
+    }).join('') + '</div>';
+  } catch {
+    container.innerHTML = '<div style="color:var(--muted);font-size:12px;">Elo ratings unavailable</div>';
+  }
+}
+
+// ── Refresh (with Elo) ──
+async function refreshAll() {
+  await refresh();
+  loadElo();
+}
+
+refreshAll(); checkIndexStatus(); setInterval(refreshAll, 30_000);
 </script>
 </body>
 </html>

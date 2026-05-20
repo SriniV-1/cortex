@@ -377,6 +377,47 @@
   .elo-record { font-size: 10px; color: var(--muted); }
   .elo-bar-outer { width: 40px; height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
   .elo-bar-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--green), var(--teal)); }
+
+  /* ── Team autofill dropdown ────────────────────────────────────────── */
+  .team-autofill-wrap { position: relative; }
+  .team-autofill-dropdown {
+    position: absolute; left: 0; right: 0; top: 100%; z-index: 120;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md); max-height: 200px; overflow-y: auto; display: none;
+  }
+  .team-autofill-dropdown.open { display: block; }
+  .team-autofill-item {
+    padding: 8px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid var(--bg); transition: background 0.1s; font-size: 13px;
+  }
+  .team-autofill-item:hover, .team-autofill-item.highlighted { background: var(--purple-lt); }
+  .team-autofill-item:last-child { border-bottom: none; }
+  .team-autofill-item .taf-tricode { font-family: var(--mono); font-weight: 700; color: var(--text); min-width: 36px; }
+  .team-autofill-item .taf-rating { font-family: var(--mono); font-size: 11px; color: var(--purple); }
+  .team-autofill-item .taf-record { font-size: 11px; color: var(--muted); }
+
+  /* ── Elo expandable cards ──────────────────────────────────────────── */
+  .elo-team { cursor: pointer; position: relative; flex-wrap: wrap; }
+  .elo-expand-icon {
+    font-size: 10px; color: var(--dim); transition: transform 0.2s;
+    margin-left: auto; flex-shrink: 0;
+  }
+  .elo-team.expanded .elo-expand-icon { transform: rotate(180deg); }
+  .elo-details {
+    display: none; width: 100%; padding: 10px 0 4px;
+    border-top: 1px solid var(--border); margin-top: 8px;
+    font-size: 11px; color: var(--text2); line-height: 1.7;
+  }
+  .elo-team.expanded .elo-details { display: block; }
+  .elo-detail-row { display: flex; justify-content: space-between; }
+  .elo-detail-label { color: var(--muted); }
+  .elo-detail-value { font-family: var(--mono); font-weight: 600; }
+  .elo-detail-value.positive { color: var(--green); }
+  .elo-detail-value.negative { color: var(--red); }
+  .elo-calc-note {
+    font-size: 10px; color: var(--dim); margin-top: 6px; padding-top: 6px;
+    border-top: 1px dashed var(--border); line-height: 1.5;
+  }
 </style>
 </head>
 <body>
@@ -493,8 +534,8 @@
   <!-- Similarity -->
   <div class="sim-outer" id="sim-panel">
     <div class="sim-header-strip">
-      <div class="sim-strip-title">🔍 Similar Moments</div>
-      <div class="sim-strip-sub">Find the 10 most similar game states from 3.7 million play events — brute-force NEON SIMD scan.</div>
+      <div class="sim-strip-title">🔎 Game State Search</div>
+      <div class="sim-strip-sub">Enter a game scenario and find the 10 closest historical matches from millions of play events — powered by SIMD vector search.</div>
       <div id="sim-index-tag">
         <span id="sim-index-dot" style="width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,0.5);display:inline-block"></span>
         <span id="sim-index-label">index loading…</span>
@@ -506,8 +547,8 @@
         <div class="sim-field"><label>Away Score</label><input type="number" id="sim-away" value="98" min="0" max="200"></div>
         <div class="sim-field"><label>Quarter</label><input type="number" id="sim-period" value="4" min="1" max="4"></div>
         <div class="sim-field"><label>Clock (sec)</label><input type="number" id="sim-clock" value="180" min="0" max="720"></div>
-        <div class="sim-field"><label>Home Team</label><input type="text" id="sim-home-team" value="OKC" maxlength="3" style="text-transform:uppercase"></div>
-        <div class="sim-field"><label>Away Team</label><input type="text" id="sim-away-team" value="BOS" maxlength="3" style="text-transform:uppercase"></div>
+        <div class="sim-field team-autofill-wrap"><label>Home Team</label><input type="text" id="sim-home-team" value="OKC" maxlength="3" style="text-transform:uppercase" autocomplete="off"><div class="team-autofill-dropdown" id="home-team-dropdown"></div></div>
+        <div class="sim-field team-autofill-wrap"><label>Away Team</label><input type="text" id="sim-away-team" value="BOS" maxlength="3" style="text-transform:uppercase" autocomplete="off"><div class="team-autofill-dropdown" id="away-team-dropdown"></div></div>
         <div class="sim-btn-wrap" style="display:flex;align-items:flex-end;"><button class="sim-btn" id="sim-btn" onclick="runSimilarity()">🔍 Find Similar</button></div>
       </div>
       <div class="sim-meta" id="sim-meta"></div>
@@ -917,6 +958,89 @@ function renderWinProb(results) {
   ${eloHtml}`;
 }
 
+// ── Team autofill for similarity search ──
+function setupTeamAutofill(inputId, dropdownId) {
+  const input = document.getElementById(inputId);
+  const dropdown = document.getElementById(dropdownId);
+  let highlightIdx = -1;
+
+  function renderDropdown(filter) {
+    const teams = Object.keys(eloRatings).sort((a, b) => eloRatings[b].rating - eloRatings[a].rating);
+    const filtered = filter ? teams.filter(t => t.startsWith(filter)) : teams;
+    if (filtered.length === 0) { dropdown.classList.remove('open'); return; }
+    highlightIdx = -1;
+    dropdown.innerHTML = filtered.map((t, i) => {
+      const te = eloRatings[t];
+      return `<div class="team-autofill-item" data-tricode="${t}" data-idx="${i}">
+        <span class="taf-tricode">${t}</span>
+        <span class="taf-rating">${Math.round(te.rating)}</span>
+        <span class="taf-record">${te.wins}W-${te.losses}L</span>
+      </div>`;
+    }).join('');
+    dropdown.classList.add('open');
+  }
+
+  input.addEventListener('focus', () => {
+    const val = input.value.trim().toUpperCase();
+    renderDropdown(val);
+  });
+
+  input.addEventListener('input', () => {
+    const val = input.value.trim().toUpperCase();
+    renderDropdown(val);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    const items = dropdown.querySelectorAll('.team-autofill-item');
+    if (!items.length || !dropdown.classList.contains('open')) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      highlightIdx = Math.min(highlightIdx + 1, items.length - 1);
+      items.forEach((el, i) => el.classList.toggle('highlighted', i === highlightIdx));
+      items[highlightIdx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      highlightIdx = Math.max(highlightIdx - 1, 0);
+      items.forEach((el, i) => el.classList.toggle('highlighted', i === highlightIdx));
+      items[highlightIdx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (highlightIdx >= 0 && highlightIdx < items.length) {
+        input.value = items[highlightIdx].dataset.tricode;
+        input.dataset.userEdited = '1';
+        dropdown.classList.remove('open');
+      }
+    } else if (e.key === 'Escape') {
+      dropdown.classList.remove('open');
+    }
+  });
+
+  dropdown.addEventListener('mousedown', (e) => {
+    e.preventDefault(); // prevent blur from closing dropdown before click registers
+    const item = e.target.closest('.team-autofill-item');
+    if (item) {
+      input.value = item.dataset.tricode;
+      input.dataset.userEdited = '1';
+      dropdown.classList.remove('open');
+    }
+  });
+
+  input.addEventListener('blur', () => {
+    setTimeout(() => dropdown.classList.remove('open'), 150);
+  });
+}
+
+// Initialize after Elo data loads
+let _autofillReady = false;
+const _origFetchElo = fetchEloMap;
+fetchEloMap = async function() {
+  await _origFetchElo();
+  if (!_autofillReady && Object.keys(eloRatings).length > 0) {
+    _autofillReady = true;
+    setupTeamAutofill('sim-home-team', 'home-team-dropdown');
+    setupTeamAutofill('sim-away-team', 'away-team-dropdown');
+  }
+};
 fetchEloMap();
 
 // ── Elo rankings ──
@@ -935,13 +1059,33 @@ async function loadElo() {
     container.innerHTML = '<div class="elo-grid">' + teams.map(t => {
       const pct = Math.round(((t.rating - minRating) / range) * 100);
       const rankClass = t.rank <= 3 ? 'elo-rank top3' : 'elo-rank';
-      return `<div class="elo-team">
+      const delta = t.rating - 1500;
+      const deltaClass = delta >= 0 ? 'positive' : 'negative';
+      const deltaStr = delta >= 0 ? '+' + Math.round(delta) : String(Math.round(delta));
+      const winPct = t.games > 0 ? ((t.wins / t.games) * 100).toFixed(1) : '0.0';
+      const kFactor = 'K=20 (reg), K=32 (playoff)';
+      return `<div class="elo-team" onclick="this.classList.toggle('expanded')">
         <span class="${rankClass}">${t.rank}</span>
         <div class="elo-info">
           <div class="elo-tricode">${t.tricode} <span class="elo-rating">${Math.round(t.rating)}</span></div>
           <div class="elo-record">${t.wins}W – ${t.losses}L</div>
         </div>
         <div class="elo-bar-outer"><div class="elo-bar-fill" style="width:${pct}%"></div></div>
+        <span class="elo-expand-icon">▼</span>
+        <div class="elo-details">
+          <div class="elo-detail-row"><span class="elo-detail-label">Elo Rating</span><span class="elo-detail-value">${Math.round(t.rating)}</span></div>
+          <div class="elo-detail-row"><span class="elo-detail-label">Delta from 1500</span><span class="elo-detail-value ${deltaClass}">${deltaStr}</span></div>
+          <div class="elo-detail-row"><span class="elo-detail-label">Win %</span><span class="elo-detail-value">${winPct}%</span></div>
+          <div class="elo-detail-row"><span class="elo-detail-label">Games Played</span><span class="elo-detail-value">${t.games}</span></div>
+          <div class="elo-detail-row"><span class="elo-detail-label">Record</span><span class="elo-detail-value">${t.wins}W – ${t.losses}L</span></div>
+          <div class="elo-calc-note">
+            <strong>How Elo is calculated:</strong><br>
+            Starting rating: 1500 | ${kFactor}<br>
+            Home court: +100 pts | Season reset: 25% regress to mean<br>
+            Expected = 1 / (1 + 10^(-(Elo_home + 100 - Elo_away) / 400))<br>
+            New = Old + K × (Result - Expected)
+          </div>
+        </div>
       </div>`;
     }).join('') + '</div>';
   } catch {

@@ -13,6 +13,7 @@
 #include "stream/StatAccumulator.hpp"
 #include "analytics/WinProbModel.hpp"
 #include "analytics/GameStateIndex.hpp"
+#include "analytics/EloTracker.hpp"
 #include "etl/LiveIngestor.hpp"
 #include "etl/NBAClient.hpp"
 #include "etl/BulkInserter.hpp"
@@ -91,6 +92,22 @@ int main(int argc, char** argv) {
             } catch (const std::exception& e) {
                 auto lg = cortex::get_logger("similarity");
                 lg->warn("Similarity index build skipped: {}", e.what());
+            }
+        });
+    }
+
+    // ── Elo ratings (built in background alongside similarity index) ──────
+    EloTracker elo_tracker;
+    std::jthread elo_builder;
+    if (!db_conn.empty()) {
+        elo_builder = std::jthread([&]() {
+            try {
+                pqxx::connection elo_conn(db_conn);
+                elo_tracker.build_from_db(elo_conn);
+                elo_tracker.save_to_db(elo_conn);
+            } catch (const std::exception& e) {
+                auto lg = cortex::get_logger("elo");
+                lg->warn("Elo build skipped: {}", e.what());
             }
         });
     }
@@ -203,6 +220,7 @@ int main(int argc, char** argv) {
     server_cfg.db_conn_str       = db_conn;
     server_cfg.www_root          = www_root;
     server_cfg.game_state_index  = &sim_index;
+    server_cfg.elo_tracker       = &elo_tracker;
 
     HttpServer server(server_cfg, accumulator);
     g_server = &server;

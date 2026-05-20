@@ -84,6 +84,7 @@ target_link_libraries(cortex_etl_lib PUBLIC
 add_library(cortex_analytics_lib STATIC
     src/analytics/WinProbModel.cpp
     src/analytics/GameStateIndex.cpp
+    src/analytics/EloTracker.cpp
 )
 target_include_directories(cortex_analytics_lib PUBLIC
     ${CMAKE_SOURCE_DIR}/include

@@ -26,7 +26,7 @@
 #include "stream/StreamEvent.hpp"
 
 // Forward-declare to avoid pulling in pqxx + arm_neon headers into every TU.
-namespace cortex::analytics { class GameStateIndex; }
+namespace cortex::analytics { class GameStateIndex; class EloTracker; }
 
 #include <string>
 #include <memory>
@@ -78,6 +78,7 @@ public:
     RedisCache*                              cache              = nullptr;
     std::string                              www_root;
     const cortex::analytics::GameStateIndex* game_state_index   = nullptr;
+    const cortex::analytics::EloTracker*    elo_tracker        = nullptr;
 
     // Called from llhttp static callbacks — must remain accessible
     void process_http_request(const std::string& method,
@@ -140,6 +141,7 @@ public:
         int         redis_port  = 6379;
         std::string www_root    = "www";            // directory for static files
         const cortex::analytics::GameStateIndex* game_state_index = nullptr;
+        const cortex::analytics::EloTracker*    elo_tracker      = nullptr;
     };
 
     explicit HttpServer(Config cfg,

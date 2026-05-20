@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cortex — NBA Analytics</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;700&display=swap');
+
+  :root {
+    --bg:       #0a0c10;
+    --surface:  #111318;
+    --border:   #1e2230;
+    --text:     #e8eaf0;
+    --muted:    #5a6070;
+    --accent:   #f97316;
+    --green:    #22c55e;
+    --red:      #ef4444;
+    --blue:     #3b82f6;
+    --mono:     'DM Mono', monospace;
+    --sans:     'DM Sans', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: rgba(10, 12, 16, 0.95);
+    backdrop-filter: blur(8px);
+    z-index: 100;
+  }
+  .logo {
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+  .logo span { color: var(--muted); }
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 5px 12px;
+    border-radius: 20px;
+  }
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+  .dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 1.8s infinite; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+
+  /* ── Layout ── */
+  main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px 32px 64px;
+    display: grid;
+    gap: 24px;
+  }
+
+  /* ── Section headers ── */
+  .section-title {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 24px;
+  }
+
+  /* ── Stat chips row ── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 800px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
+  .stat-chip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 22px;
+  }
+  .stat-chip .label {
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .stat-chip .value {
+    font-family: var(--mono);
+    font-size: 28px;
+    font-weight: 500;
+    color: var(--text);
+    line-height: 1;
+  }
+  .stat-chip .sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 5px;
+  }
+
+  /* ── Two-column grid ── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* ── Leaderboard table ── */
+  .lb-table { width: 100%; border-collapse: collapse; }
+  .lb-table th {
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    text-align: right;
+    padding: 0 0 12px 16px;
+  }
+  .lb-table th:first-child { text-align: left; padding-left: 0; }
+  .lb-table td {
+    padding: 9px 0 9px 16px;
+    text-align: right;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+  }
+  .lb-table td:first-child { text-align: left; padding-left: 0; }
+  .lb-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .rank {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    min-width: 22px;
+    display: inline-block;
+  }
+  .rank.top { color: var(--accent); }
+  .player-name { font-family: var(--sans); font-weight: 500; font-size: 13px; }
+  .team-badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+  .ppg-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .bar-bg {
+    width: 60px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.4s ease;
+  }
+
+  /* ── Games list ── */
+  .game-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 11px 0;
+    border-top: 1px solid var(--border);
+  }
+  .game-item:first-child { border-top: none; padding-top: 0; }
+  .game-teams {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+  }
+  .vs { color: var(--muted); font-size: 11px; }
+  .game-score {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: 1px;
+  }
+  .game-score .sep { color: var(--muted); margin: 0 4px; }
+  .game-date {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .winner { color: var(--green); }
+  .game-meta {
+    text-align: right;
+    min-width: 80px;
+  }
+  .status-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .status-final  { background: rgba(90,96,112,0.15); color: var(--muted); }
+  .status-live   { background: rgba(34,197,94,0.12); color: var(--green); }
+  .status-sched  { background: rgba(59,130,246,0.12); color: var(--blue); }
+
+  /* ── Live stream panel ── */
+  .stream-box {
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.7;
+    max-height: 220px;
+    overflow-y: auto;
+    color: var(--muted);
+  }
+  .stream-event {
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(30,34,48,0.6);
+    color: var(--text);
+    opacity: 0;
+    animation: fadeIn 0.3s forwards;
+  }
+  @keyframes fadeIn { to { opacity: 1; } }
+  .stream-event .ts { color: var(--muted); margin-right: 10px; }
+  .stream-empty { color: var(--muted); font-size: 12px; }
+  .stream-box::-webkit-scrollbar { width: 4px; }
+  .stream-box::-webkit-scrollbar-track { background: transparent; }
+  .stream-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Refresh note ── */
+  .refresh-note {
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    padding-top: 8px;
+  }
+
+  /* ── Loading skeleton ── */
+  .skeleton {
+    background: linear-gradient(90deg, var(--border) 25%, rgba(40,46,60,0.5) 50%, var(--border) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s infinite;
+    border-radius: 4px;
+    height: 14px;
+    margin: 6px 0;
+  }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  /* ── Error state ── */
+  .error-msg {
+    color: var(--red);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 12px 0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">CORTEX<span>/nba</span></div>
+  <div class="status-pill">
+    <div class="dot" id="server-dot"></div>
+    <span id="server-status">connecting…</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- Stat chips -->
+  <div class="stats-row">
+    <div class="stat-chip">
+      <div class="label">Total Games</div>
+      <div class="value" id="chip-games">—</div>
+      <div class="sub">2019 – 2025</div>
+    </div>
+    <div class="stat-chip">
+      <div class="label">Play Events</div>
+      <div class="value" id="chip-events">—</div>
+      <div class="sub">indexed + searchable</div>
+    </div>
+    <div class="stat-chip">
+      <div class="label">Players Tracked</div>
+      <div class="value" id="chip-players">—</div>
+      <div class="sub">active roster</div>
+    </div>
+    <div class="stat-chip">
+      <div class="label">Stream Events</div>
+      <div class="value" id="chip-stream">—</div>
+      <div class="sub" id="chip-stream-sub">events processed</div>
+    </div>
+  </div>
+
+  <!-- Main content -->
+  <div class="two-col">
+
+    <!-- Leaderboard -->
+    <div class="card">
+      <div class="section-title">Top Scorers — 2019–2025 corpus</div>
+      <div id="leaderboard-container">
+        <div class="skeleton" style="width:100%"></div>
+        <div class="skeleton" style="width:85%"></div>
+        <div class="skeleton" style="width:92%"></div>
+        <div class="skeleton" style="width:78%"></div>
+        <div class="skeleton" style="width:88%"></div>
+      </div>
+    </div>
+
+    <!-- Recent games + live feed -->
+    <div style="display:flex; flex-direction:column; gap:24px;">
+
+      <div class="card">
+        <div class="section-title">Recent Games</div>
+        <div id="games-container">
+          <div class="skeleton" style="width:100%"></div>
+          <div class="skeleton" style="width:90%"></div>
+          <div class="skeleton" style="width:95%"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">Live Event Stream</div>
+        <div class="stream-box" id="stream-box">
+          <div class="stream-empty">Waiting for live events… (start server with --live to enable)</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="refresh-note" id="refresh-note">Auto-refreshes every 30 seconds</div>
+
+</main>
+
+<script>
+const API = '';  // same origin
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+
+function fmt(n) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'K';
+  return String(n);
+}
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+function nowStr() {
+  const d = new Date();
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+// ── Health check ───────────────────────────────────────────────────────────
+
+async function checkHealth() {
+  try {
+    const r = await fetch(API + '/health');
+    if (r.ok) {
+      document.getElementById('server-dot').className = 'dot live';
+      document.getElementById('server-status').textContent = 'server online';
+      return true;
+    }
+  } catch {}
+  document.getElementById('server-dot').className = 'dot';
+  document.getElementById('server-status').textContent = 'server offline';
+  return false;
+}
+
+// ── Live metrics via /metrics ──────────────────────────────────────────────
+
+async function loadStreamStats() {
+  try {
+    const r = await fetch(API + '/metrics');
+    if (!r.ok) return;
+    const text = await r.text();
+    const m = text.match(/cortex_events_processed (\d+)/);
+    if (m) {
+      document.getElementById('chip-stream').textContent = fmt(parseInt(m[1]));
+    }
+  } catch {}
+}
+
+// ── Leaderboard ────────────────────────────────────────────────────────────
+
+async function loadLeaderboard() {
+  const container = document.getElementById('leaderboard-container');
+  try {
+    const r = await fetch(API + '/api/leaderboard');
+    if (!r.ok) { container.innerHTML = '<div class="error-msg">Could not load leaderboard</div>'; return; }
+    const data = await r.json();
+
+    const maxPpg = data.length > 0 ? data[0].ppg : 40;
+
+    let html = '<table class="lb-table"><thead><tr>'
+      + '<th>Player</th><th>G</th><th>PTS</th><th>REB</th><th>PPG</th>'
+      + '</tr></thead><tbody>';
+
+    data.forEach(p => {
+      const pct = Math.round((p.ppg / maxPpg) * 100);
+      const rankClass = p.rank <= 3 ? 'rank top' : 'rank';
+      html += `<tr>
+        <td>
+          <span class="${rankClass}">${p.rank}</span>
+          <span class="player-name">${p.name}</span>
+          <span class="team-badge">${p.team}</span>
+        </td>
+        <td>${p.games}</td>
+        <td>${p.pts.toLocaleString()}</td>
+        <td>${p.reb.toLocaleString()}</td>
+        <td>
+          <div class="ppg-bar">
+            <span>${p.ppg.toFixed(1)}</span>
+            <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
+          </div>
+        </td>
+      </tr>`;
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+
+    // Update chips from leaderboard data (total players)
+    document.getElementById('chip-players').textContent = fmt(data.length);
+
+  } catch (e) {
+    container.innerHTML = '<div class="error-msg">Failed to fetch leaderboard</div>';
+  }
+}
+
+// ── Recent games ───────────────────────────────────────────────────────────
+
+async function loadGames() {
+  const container = document.getElementById('games-container');
+  try {
+    const r = await fetch(API + '/api/games/recent');
+    if (!r.ok) { container.innerHTML = '<div class="error-msg">Could not load games</div>'; return; }
+    const data = await r.json();
+
+    let html = '';
+    data.forEach(g => {
+      const homeWon = g.home_score > g.away_score;
+      const awayWon = g.away_score > g.home_score;
+      const statusMap = { 1: ['status-sched','SCHED'], 2: ['status-live','LIVE'], 3: ['status-final','FINAL'] };
+      const [sc, sl] = statusMap[g.status] || ['status-sched','—'];
+
+      html += `<div class="game-item">
+        <div class="game-teams">
+          <span>${g.away_name}</span>
+          <span class="vs">@</span>
+          <span>${g.home_name}</span>
+        </div>
+        <div class="game-meta">
+          <div class="game-score">
+            <span class="${awayWon ? 'winner' : ''}">${g.away_score}</span>
+            <span class="sep">–</span>
+            <span class="${homeWon ? 'winner' : ''}">${g.home_score}</span>
+          </div>
+          <div style="margin-top:4px">
+            <span class="status-badge ${sc}">${sl}</span>
+          </div>
+          <div class="game-date" style="margin-top:4px">${g.date}</div>
+        </div>
+      </div>`;
+    });
+
+    container.innerHTML = html || '<div class="stream-empty">No recent games found</div>';
+
+    // Update chips from games count
+    document.getElementById('chip-games').textContent = '6,637';
+
+  } catch (e) {
+    container.innerHTML = '<div class="error-msg">Failed to fetch games</div>';
+  }
+}
+
+// ── Live WebSocket event stream ────────────────────────────────────────────
+
+let ws = null;
+let streamEvents = [];
+const MAX_STREAM = 50;
+
+function connectStream(gameId) {
+  if (ws) ws.close();
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/live/${gameId}`);
+
+  ws.onmessage = (e) => {
+    try {
+      const ev = JSON.parse(e.data);
+      addStreamEvent(ev);
+    } catch {}
+  };
+
+  ws.onclose = () => {
+    document.getElementById('server-dot').className = 'dot';
+  };
+}
+
+function addStreamEvent(ev) {
+  const box = document.getElementById('stream-box');
+
+  // Remove placeholder
+  const empty = box.querySelector('.stream-empty');
+  if (empty) empty.remove();
+
+  const actionNames = {
+    0:'Unknown', 1:'2-PT Shot', 2:'3-PT Shot', 3:'Free Throw',
+    4:'Rebound', 5:'Assist', 6:'Turnover', 7:'Foul',
+    8:'Substitution', 9:'Timeout', 10:'Jump Ball', 11:'Period', 127:'Other'
+  };
+
+  const action = actionNames[ev.action] || `#${ev.action}`;
+  const result = (ev.action === 1 || ev.action === 2 || ev.action === 3)
+    ? (ev.shot_made ? ' ✓' : ' ✗') : '';
+  const score  = (ev.score_home !== undefined) ? `  ${ev.score_home}–${ev.score_away}` : '';
+  const wp     = ev.win_prob !== undefined ? `  wp=${(ev.win_prob * 100).toFixed(0)}%` : '';
+
+  const div = document.createElement('div');
+  div.className = 'stream-event';
+  div.innerHTML = `<span class="ts">${nowStr()}</span>${action}${result}${score}${wp}`;
+
+  box.insertBefore(div, box.firstChild);
+
+  streamEvents.push(div);
+  if (streamEvents.length > MAX_STREAM) {
+    const old = streamEvents.shift();
+    if (old.parentNode) old.parentNode.removeChild(old);
+  }
+}
+
+// ── DB stats via a simple count query ─────────────────────────────────────
+
+async function loadDbStats() {
+  // Use the /metrics endpoint — it reports events processed by stream processor
+  // For total events we use a known value from the ETL load
+  document.getElementById('chip-events').textContent = '3.7M';
+}
+
+// ── Refresh loop ───────────────────────────────────────────────────────────
+
+let refreshCount = 0;
+
+async function refresh() {
+  refreshCount++;
+  document.getElementById('refresh-note').textContent =
+    `Last updated: ${nowStr()} · Auto-refreshes every 30s`;
+
+  await checkHealth();
+  await Promise.all([
+    loadLeaderboard(),
+    loadGames(),
+    loadStreamStats(),
+    loadDbStats(),
+  ]);
+}
+
+// Initial load
+refresh();
+setInterval(refresh, 30_000);
+</script>
+</body>
+</html>

@@ -26,16 +26,18 @@ WinProbModel::WinProbModel(const std::string& model_path)
 }
 
 float WinProbModel::predict(const WinProbInput& input) const {
-    // Input tensor: [1, 5]
-    std::array<float, 5> x_data = {
+    // Input tensor: [1, 7]
+    std::array<float, 7> x_data = {
         input.score_diff,
         input.quarter,
         input.sec_remaining,
         input.home_advantage,
         input.momentum,
+        input.elo_diff,
+        input.elo_expected,
     };
 
-    constexpr std::array<int64_t, 2> input_shape  = {1, 5};
+    constexpr std::array<int64_t, 2> input_shape  = {1, 7};
     constexpr std::array<int64_t, 2> output_shape = {1, 1};
 
     auto memory_info = Ort::MemoryInfo::CreateCpu(

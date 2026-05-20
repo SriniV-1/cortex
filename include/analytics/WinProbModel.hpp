@@ -2,8 +2,9 @@
 // WinProbModel — wraps an ONNXRuntime session for win probability inference.
 //
 // Model spec (win_prob.onnx):
-//   Input:  "X"        float32 [1, 5]
-//             [score_diff, quarter (1-4), sec_remaining, home_advantage (0/1), momentum]
+//   Input:  "X"        float32 [1, 7]
+//             [score_diff, quarter, sec_remaining, home_advantage, momentum,
+//              elo_diff, elo_expected]
 //   Output: "win_prob"  float32 [1, 1]
 //             probability that the home team wins (0..1)
 //
@@ -23,6 +24,8 @@ struct WinProbInput {
     float sec_remaining;    // seconds remaining in game
     float home_advantage;   // 1.0 if home team, 0.0 if away
     float momentum;         // rolling point differential last 10 events (normalized)
+    float elo_diff;         // home_elo - away_elo
+    float elo_expected;     // Elo expected win probability for home team
 };
 
 class WinProbModel {

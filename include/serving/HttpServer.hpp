@@ -25,6 +25,9 @@
 #include "stream/StatAccumulator.hpp"
 #include "stream/StreamEvent.hpp"
 
+// Forward-declare to avoid pulling in pqxx + arm_neon headers into every TU.
+namespace cortex::analytics { class GameStateIndex; }
+
 #include <string>
 #include <memory>
 #include <functional>
@@ -70,10 +73,11 @@ public:
     const std::string& subscribed_game() const noexcept { return subscribed_game_; }
 
     // Injected dependencies — set by HttpServer before registering with poller
-    cortex::stream::StatAccumulator* accumulator = nullptr;
-    pqxx::connection*                db_conn     = nullptr;
-    RedisCache*                      cache       = nullptr;
-    std::string                      www_root;   // directory for static file serving
+    cortex::stream::StatAccumulator*         accumulator        = nullptr;
+    pqxx::connection*                        db_conn            = nullptr;
+    RedisCache*                              cache              = nullptr;
+    std::string                              www_root;
+    const cortex::analytics::GameStateIndex* game_state_index   = nullptr;
 
     // Called from llhttp static callbacks — must remain accessible
     void process_http_request(const std::string& method,
@@ -131,10 +135,11 @@ public:
         std::string host        = "0.0.0.0";
         uint16_t    port        = 8080;
         int         backlog     = 128;
-        std::string db_conn_str;        // libpqxx connection string
+        std::string db_conn_str;                    // libpqxx connection string
         std::string redis_host  = "127.0.0.1";
         int         redis_port  = 6379;
-        std::string www_root    = "www"; // directory for static files (dashboard)
+        std::string www_root    = "www";            // directory for static files
+        const cortex::analytics::GameStateIndex* game_state_index = nullptr;
     };
 
     explicit HttpServer(Config cfg,

@@ -237,17 +237,29 @@ cmd_load() {
     cmake --build "$BUILD_DIR" -j"$(sysctl -n hw.logicalcpu)" --target cortex_etl -q
   fi
 
-  echo -e "  ${BOLD}Loading NBA historical data (2019–2025)${NC}"
-  echo -e "  ${DIM}This fetches 6,637 games from the NBA S3 feed."
-  echo -e "  It takes 15–20 minutes and uses about 500MB of disk.${NC}"
+  echo -e "  ${BOLD}Loading NBA historical data (2019–2026)${NC}"
+  echo -e "  ${DIM}This fetches regular season + playoff games from the NBA S3 feed."
+  echo -e "  It takes 20–30 minutes and uses about 600MB of disk.${NC}"
   echo
   read -rp "  Press Enter to start, Ctrl+C to cancel... "
   echo
 
-  "$BUILD_DIR/cortex_etl" \
-    --db "host=localhost port=$PGPORT dbname=$DBNAME" \
-    --seasons 2019,2020,2021,2022,2023,2024 \
-    --populate-dimensions
+  local conn="host=localhost port=$PGPORT dbname=$DBNAME"
+
+  # Regular seasons 2019–2025
+  for year in 2019 2020 2021 2022 2023 2024 2025; do
+    info "Loading season $year (regular season)..."
+    "$BUILD_DIR/cortex_etl" --conn "$conn" --season "$year" --threads 2
+  done
+
+  # Playoffs for all seasons (2019-present; pre-2019 returns 403 immediately)
+  for year in 2019 2020 2021 2022 2023 2024 2025; do
+    info "Loading season $year (playoffs)..."
+    "$BUILD_DIR/cortex_etl" --conn "$conn" --season "$year" --playoffs --threads 2
+  done
+
+  info "Backfilling dimension tables (teams/players)..."
+  "$BUILD_DIR/cortex_etl" --conn "$conn" --populate-dimensions
 
   echo
   success "Data load complete."
@@ -261,7 +273,8 @@ cmd_bench() {
 
   if ! [[ -f "$BUILD_DIR/cortex_bench" ]]; then
     cmake --build "$BUILD_DIR" -j"$(sysctl -n hw.logicalcpu)" \
-      --target cortex_bench --target cortex_throughput --target cortex_ws_load -q
+      --target cortex_bench --target cortex_throughput \
+      --target cortex_ws_load --target cortex_similarity -q
   fi
 
   echo -e "  ${BOLD}Query Latency Benchmark${NC}\n"
@@ -273,6 +286,9 @@ cmd_bench() {
   echo -e "\n  ${BOLD}WebSocket Load Test (1000 clients)${NC}\n"
   lsof -ti tcp:19090 | xargs kill -9 2>/dev/null || true
   "$BUILD_DIR/cortex_ws_load"
+
+  echo -e "\n  ${BOLD}Similarity Index Benchmark (SIMD scan, 3.7M events)${NC}\n"
+  "$BUILD_DIR/cortex_similarity" "host=localhost port=$PGPORT dbname=$DBNAME"
 }
 
 cmd_help() {

@@ -14,12 +14,19 @@ namespace {
     auto log = cortex::get_logger("bulk_inserter");
 
     // Derive season start year from NBA game_id.
-    // Format: 002YYNNNNN where YY = last 2 digits of season start year.
-    // e.g. "0022300001" → YY=23 → 2023, "0021900001" → YY=19 → 2019
+    // Format: 00TSYYNNNNN where T=season_type(2=reg,4=playoff), S=sub, YY=year
+    // e.g. "0022300001" → YY=23 → 2023, "0042400101" → YY=24 → 2024
     int season_from_game_id(const std::string& game_id) {
         if (game_id.size() < 5) return 2023;
         int yy = std::stoi(game_id.substr(3, 2));
         return (yy < 50) ? (2000 + yy) : (1900 + yy);
+    }
+
+    // Detect season type from game_id prefix: "004" = Playoffs, else Regular Season.
+    std::string season_type_from_game_id(const std::string& game_id) {
+        if (game_id.size() >= 3 && game_id.substr(0, 3) == "004")
+            return "Playoffs";
+        return "Regular Season";
     }
 
     // Parse "PT11M45.00S" style clock + game date into a TIMESTAMPTZ string.
@@ -66,14 +73,15 @@ void BulkInserter::upsert_game(const GameSummary& game) {
     std::string game_date = game.game_date.empty()
                           ? std::format("{}-10-01", season)
                           : game.game_date;
+    std::string st = season_type_from_game_id(game.game_id);
     pqxx::work txn(conn_);
     txn.exec(
         "INSERT INTO games "
         "  (game_id, season, season_type, game_date, home_team_id, away_team_id, "
         "   home_score, away_score, status) "
-        "VALUES ($1, $2, 'Regular Season', $3::date, $4, $5, $6, $7, $8) "
+        "VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8, $9) "
         "ON CONFLICT (game_id) DO NOTHING",
-        pqxx::params{game.game_id, season, game_date,
+        pqxx::params{game.game_id, season, st, game_date,
                      game.home_team_id, game.away_team_id,
                      game.home_score, game.away_score,
                      game.status}

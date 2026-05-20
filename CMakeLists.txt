@@ -80,9 +80,10 @@ target_link_libraries(cortex_etl_lib PUBLIC
     CURL::libcurl
 )
 
-# ── Analytics library (ONNX win probability model) ───────────────────────
+# ── Analytics library (ONNX win probability model + similarity index) ────
 add_library(cortex_analytics_lib STATIC
     src/analytics/WinProbModel.cpp
+    src/analytics/GameStateIndex.cpp
 )
 target_include_directories(cortex_analytics_lib PUBLIC
     ${CMAKE_SOURCE_DIR}/include
@@ -90,6 +91,7 @@ target_include_directories(cortex_analytics_lib PUBLIC
 )
 target_link_libraries(cortex_analytics_lib PUBLIC
     cortex_common
+    PkgConfig::PQXX
     ${ORT_LIB}
 )
 
@@ -178,6 +180,10 @@ target_include_directories(cortex_server PRIVATE ${ORT_INCLUDE_DIR})
 # ── WebSocket load test ───────────────────────────────────────────────────
 add_executable(cortex_ws_load tests/benchmarks/bench_ws_load.cpp)
 target_link_libraries(cortex_ws_load PRIVATE cortex_serving_lib)
+
+# ── Similarity index benchmark ────────────────────────────────────────────
+add_executable(cortex_similarity tests/benchmarks/bench_similarity.cpp)
+target_link_libraries(cortex_similarity PRIVATE cortex_analytics_lib)
 
 # ── Build info ────────────────────────────────────────────────────────────
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")

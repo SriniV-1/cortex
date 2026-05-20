@@ -178,13 +178,14 @@ ON CONFLICT (season) DO NOTHING;
 
 COMMIT;
 
--- ── Player game stats (view over play_events) ────────────────────────────
+-- ── Player game stats (materialized view over play_events) ───────────────
 -- Aggregates per-player per-game box-score stats from raw play_events.
--- Used by GET /players/{id}/season (sums across all games for that player).
+-- Used by GET /api/leaderboard and GET /players/{id}/season.
+-- Refresh after each ETL load: REFRESH MATERIALIZED VIEW CONCURRENTLY player_game_stats;
 --
 -- Note: assists are not tracked as a separate action in the NBA feed;
 -- they appear in shot-event descriptions. assists column is always 0.
-CREATE OR REPLACE VIEW player_game_stats AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS player_game_stats AS
 SELECT
     player_id,
     game_id,
@@ -208,6 +209,9 @@ SELECT
 FROM play_events
 WHERE player_id IS NOT NULL
 GROUP BY player_id, game_id;
+
+CREATE UNIQUE INDEX IF NOT EXISTS player_game_stats_pk
+    ON player_game_stats (player_id, game_id);
 
 -- ── Daily event summary (materialized aggregation) ────────────────────────
 -- Pre-aggregated counts per (date, action_type) for fast time-range queries.

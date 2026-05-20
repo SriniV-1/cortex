@@ -47,6 +47,7 @@ int main(int argc, char** argv) {
     int         redis_port       = 6379;
     bool        enable_live      = false;
     int         poll_interval_ms = 30'000;
+    std::string www_root         = "www";
 
     std::string model_path = "data/models/win_prob.onnx";
 
@@ -63,6 +64,8 @@ int main(int argc, char** argv) {
             enable_live = true;
         if (std::strcmp(argv[i], "--poll-interval") == 0 && i + 1 < argc)
             poll_interval_ms = std::atoi(argv[++i]);
+        if (std::strcmp(argv[i], "--www") == 0 && i + 1 < argc)
+            www_root = argv[++i];
     }
 
     auto log = cortex::get_logger("main");
@@ -89,6 +92,7 @@ int main(int argc, char** argv) {
     HttpServer::Config server_cfg;
     server_cfg.port        = port;
     server_cfg.db_conn_str = db_conn;
+    server_cfg.www_root    = www_root;
 
     HttpServer server(server_cfg, accumulator);
     g_server = &server;

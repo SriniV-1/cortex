@@ -107,8 +107,15 @@ target_link_libraries(cortex_stream_lib PUBLIC
 )
 
 # ── Serving library (HTTP/WebSocket/Redis) ────────────────────────────────
+# Platform-select the I/O poller backend.
+if(APPLE)
+    set(POLLER_SRC src/serving/KqueuePoller.cpp)
+else()
+    set(POLLER_SRC src/serving/EpollPoller.cpp)
+endif()
+
 add_library(cortex_serving_lib STATIC
-    src/serving/KqueuePoller.cpp
+    ${POLLER_SRC}
     src/serving/HttpServer.cpp
     src/serving/RedisCache.cpp
 )

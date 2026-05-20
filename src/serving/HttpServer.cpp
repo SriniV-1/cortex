@@ -1,5 +1,11 @@
 #include "serving/HttpServer.hpp"
-#include "serving/KqueuePoller.hpp"
+#if defined(__APPLE__)
+#  include "serving/KqueuePoller.hpp"
+   using PlatformPoller = cortex::serving::KqueuePoller;
+#else
+#  include "serving/EpollPoller.hpp"
+   using PlatformPoller = cortex::serving::EpollPoller;
+#endif
 #include "serving/RedisCache.hpp"
 #include "common/Logger.hpp"
 
@@ -11,12 +17,14 @@
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
+#include <fstream>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <openssl/sha.h>
 #include <sstream>
 #include <stdexcept>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -81,6 +89,26 @@ static std::string get_header(const std::string& headers_raw,
         }
     }
     return "";
+}
+
+// Guess MIME type from file extension
+static std::string mime_type(const std::string& path) {
+    if (path.size() >= 5 && path.substr(path.size()-5) == ".html") return "text/html; charset=utf-8";
+    if (path.size() >= 3 && path.substr(path.size()-3) == ".js")   return "application/javascript";
+    if (path.size() >= 4 && path.substr(path.size()-4) == ".css")  return "text/css";
+    if (path.size() >= 4 && path.substr(path.size()-4) == ".ico")  return "image/x-icon";
+    return "application/octet-stream";
+}
+
+// Read a local file into string. Returns nullopt if not found / not readable.
+static std::optional<std::string> read_file(const std::string& filepath) {
+    // Reject path traversal
+    if (filepath.find("..") != std::string::npos) return std::nullopt;
+    struct stat st{};
+    if (::stat(filepath.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) return std::nullopt;
+    std::ifstream f(filepath, std::ios::binary);
+    if (!f) return std::nullopt;
+    return std::string(std::istreambuf_iterator<char>(f), {});
 }
 
 // JSON helpers
@@ -386,6 +414,99 @@ void Connection::process_http_request(const std::string& method,
         return;
     }
 
+    // ── /api/leaderboard — top players by PPG ───────────────────────────
+    if (method == "GET" && path == "/api/leaderboard") {
+        if (!db_conn) {
+            send_response(500, "application/json", R"({"error":"no db"})", false);
+            return;
+        }
+        try {
+            pqxx::work txn(*db_conn);
+            auto r = txn.exec(
+                "SELECT p.player_id, p.first_name || ' ' || p.last_name AS name, "
+                "       t.tricode AS team, "
+                "       SUM(pgs.points) AS pts, "
+                "       COUNT(DISTINCT pgs.game_id) AS games, "
+                "       ROUND(SUM(pgs.points)::numeric / "
+                "             NULLIF(COUNT(DISTINCT pgs.game_id),0), 1) AS ppg, "
+                "       SUM(pgs.rebounds) AS reb, "
+                "       SUM(pgs.steals) AS stl "
+                "FROM player_game_stats pgs "
+                "JOIN players p ON p.player_id = pgs.player_id "
+                "JOIN teams t   ON t.team_id = p.team_id "
+                "GROUP BY p.player_id, name, t.tricode "
+                "HAVING COUNT(DISTINCT pgs.game_id) >= 30 "
+                "ORDER BY ppg DESC LIMIT 20");
+            txn.commit();
+
+            std::ostringstream j;
+            j << "[";
+            for (pqxx::result::size_type i = 0; i < r.size(); ++i) {
+                if (i > 0) j << ",";
+                j << "{"
+                  << "\"rank\":" << (i+1) << ","
+                  << "\"player_id\":" << r[i]["player_id"].as<int>() << ","
+                  << "\"name\":"  << json_str(r[i]["name"].as<std::string>()) << ","
+                  << "\"team\":"  << json_str(r[i]["team"].as<std::string>()) << ","
+                  << "\"ppg\":"   << r[i]["ppg"].as<double>(0.0) << ","
+                  << "\"pts\":"   << r[i]["pts"].as<int>(0) << ","
+                  << "\"reb\":"   << r[i]["reb"].as<int>(0) << ","
+                  << "\"stl\":"   << r[i]["stl"].as<int>(0) << ","
+                  << "\"games\":" << r[i]["games"].as<int>(0)
+                  << "}";
+            }
+            j << "]";
+            send_response(200, "application/json", j.str(), false);
+        } catch (const std::exception& e) {
+            log->error("leaderboard DB error: {}", e.what());
+            send_response(500, "application/json", R"({"error":"db error"})", false);
+        }
+        return;
+    }
+
+    // ── /api/games/recent — last 20 completed games ──────────────────────
+    if (method == "GET" && path == "/api/games/recent") {
+        if (!db_conn) {
+            send_response(500, "application/json", R"({"error":"no db"})", false);
+            return;
+        }
+        try {
+            pqxx::work txn(*db_conn);
+            auto r = txn.exec(
+                "SELECT g.game_id, g.game_date::text, g.home_score, g.away_score, g.status, "
+                "       ht.tricode AS home, at.tricode AS away, "
+                "       ht.full_name AS home_name, at.full_name AS away_name "
+                "FROM games g "
+                "JOIN teams ht ON ht.team_id = g.home_team_id "
+                "JOIN teams at ON at.team_id = g.away_team_id "
+                "ORDER BY g.game_date DESC, g.game_id DESC LIMIT 20");
+            txn.commit();
+
+            std::ostringstream j;
+            j << "[";
+            for (pqxx::result::size_type i = 0; i < r.size(); ++i) {
+                if (i > 0) j << ",";
+                j << "{"
+                  << "\"game_id\":"    << json_str(r[i]["game_id"].as<std::string>()) << ","
+                  << "\"date\":"       << json_str(r[i]["game_date"].as<std::string>()) << ","
+                  << "\"home\":"       << json_str(r[i]["home"].as<std::string>()) << ","
+                  << "\"away\":"       << json_str(r[i]["away"].as<std::string>()) << ","
+                  << "\"home_name\":"  << json_str(r[i]["home_name"].as<std::string>()) << ","
+                  << "\"away_name\":"  << json_str(r[i]["away_name"].as<std::string>()) << ","
+                  << "\"home_score\":" << r[i]["home_score"].as<int>(0) << ","
+                  << "\"away_score\":" << r[i]["away_score"].as<int>(0) << ","
+                  << "\"status\":"     << r[i]["status"].as<int>(1)
+                  << "}";
+            }
+            j << "]";
+            send_response(200, "application/json", j.str(), false);
+        } catch (const std::exception& e) {
+            log->error("games/recent DB error: {}", e.what());
+            send_response(500, "application/json", R"({"error":"db error"})", false);
+        }
+        return;
+    }
+
     // ── /live/{gameId} — WebSocket upgrade ───────────────────────────────
     if (method == "GET" && path.rfind("/live/", 0) == 0) {
         std::string game_id = path.substr(6);
@@ -405,6 +526,26 @@ void Connection::process_http_request(const std::string& method,
         }
         upgrade_to_websocket(ws_key, game_id);
         return;
+    }
+
+    // ── / and /static/* — serve dashboard files ─────────────────────────
+    if (method == "GET") {
+        std::string file_path;
+        if (path == "/" || path == "/index.html") {
+            file_path = www_root + "/index.html";
+        } else if (path.rfind("/static/", 0) == 0) {
+            // Strip query string if any
+            auto qs = path.find('?');
+            file_path = www_root + (qs == std::string::npos ? path : path.substr(0, qs));
+        }
+
+        if (!file_path.empty()) {
+            auto content = read_file(file_path);
+            if (content) {
+                send_response(200, mime_type(file_path), *content, false);
+                return;
+            }
+        }
     }
 
     send_response(404, "application/json", R"({"error":"not found"})", false);
@@ -632,6 +773,7 @@ void HttpServer::accept_connection() {
         conn->accumulator = &accumulator_;
         conn->db_conn     = db_.get();
         conn->cache       = cache_.get();
+        conn->www_root    = cfg_.www_root;
 
         Connection* raw = conn.get();
 

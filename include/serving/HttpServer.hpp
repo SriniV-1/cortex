@@ -73,6 +73,7 @@ public:
     cortex::stream::StatAccumulator* accumulator = nullptr;
     pqxx::connection*                db_conn     = nullptr;
     RedisCache*                      cache       = nullptr;
+    std::string                      www_root;   // directory for static file serving
 
     // Called from llhttp static callbacks — must remain accessible
     void process_http_request(const std::string& method,
@@ -133,6 +134,7 @@ public:
         std::string db_conn_str;        // libpqxx connection string
         std::string redis_host  = "127.0.0.1";
         int         redis_port  = 6379;
+        std::string www_root    = "www"; // directory for static files (dashboard)
     };
 
     explicit HttpServer(Config cfg,

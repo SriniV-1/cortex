@@ -242,6 +242,13 @@ int main(int argc, char** argv) {
             wpi.sec_remaining  = static_cast<float>(periods_left * 720 + ev.clock_secs);
             wpi.home_advantage = 1.0f;
             wpi.momentum       = 0.0f;  // simple broadcast: no rolling window here
+            // Elo features from team strength ratings
+            if (elo_tracker.built()) {
+                wpi.elo_diff    = elo_tracker.elo_diff(ev.home_team_id, ev.away_team_id);
+                wpi.elo_expected = EloTracker::expected_score(
+                    elo_tracker.rating(ev.home_team_id),
+                    elo_tracker.rating(ev.away_team_id));
+            }
             try { wp = win_prob_model->predict(wpi); }
             catch (...) { wp = -1.0f; }
         }

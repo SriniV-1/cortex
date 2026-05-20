@@ -8,6 +8,7 @@
 #endif
 #include "serving/RedisCache.hpp"
 #include "analytics/GameStateIndex.hpp"
+#include "analytics/EloTracker.hpp"
 #include "common/Logger.hpp"
 
 #include <llhttp.h>
@@ -956,6 +957,39 @@ void Connection::process_http_request(const std::string& method,
         return;
     }
 
+    // ── /api/elo — team Elo ratings ────────────────────────────────────
+    if (method == "GET" && path == "/api/elo") {
+        if (!elo_tracker || !elo_tracker->built()) {
+            send_response(503, "application/json",
+                R"({"error":"Elo ratings not ready yet — building in background"})", false);
+            return;
+        }
+        auto ratings = elo_tracker->all_ratings();
+        std::ostringstream j;
+        j << "{\"games_processed\":" << elo_tracker->games_processed()
+          << ",\"build_ms\":" << std::fixed;
+        j.precision(1);
+        j << elo_tracker->build_ms()
+          << ",\"teams\":[";
+        for (size_t i = 0; i < ratings.size(); ++i) {
+            if (i > 0) j << ",";
+            const auto& te = ratings[i];
+            j << "{\"rank\":" << (i + 1)
+              << ",\"team_id\":" << te.team_id
+              << ",\"tricode\":" << json_str(te.tricode)
+              << ",\"rating\":" << std::fixed;
+            j.precision(0);
+            j << te.rating
+              << ",\"games\":" << te.games_played
+              << ",\"wins\":" << te.wins
+              << ",\"losses\":" << te.losses
+              << "}";
+        }
+        j << "]}";
+        send_response(200, "application/json", j.str(), false);
+        return;
+    }
+
     // ── /api/index/status — similarity index readiness ───────────────────
     if (method == "GET" && path == "/api/index/status") {
         std::ostringstream j;
@@ -1320,6 +1354,7 @@ void HttpServer::accept_connection() {
         conn->cache             = cache_.get();
         conn->www_root          = cfg_.www_root;
         conn->game_state_index  = cfg_.game_state_index;
+        conn->elo_tracker       = cfg_.elo_tracker;
 
         Connection* raw = conn.get();
 

@@ -397,26 +397,69 @@
   .team-autofill-item .taf-record { font-size: 11px; color: var(--muted); }
 
   /* ── Elo expandable cards ──────────────────────────────────────────── */
-  .elo-team { cursor: pointer; position: relative; flex-wrap: wrap; }
-  .elo-expand-icon {
-    font-size: 10px; color: var(--dim); transition: transform 0.2s;
-    margin-left: auto; flex-shrink: 0;
+  .elo-team { cursor: pointer; }
+
+  /* Modal overlay */
+  .elo-modal-backdrop {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(22,25,45,0.55); backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
   }
-  .elo-team.expanded .elo-expand-icon { transform: rotate(180deg); }
-  .elo-details {
-    display: none; width: 100%; padding: 10px 0 4px;
-    border-top: 1px solid var(--border); margin-top: 8px;
-    font-size: 11px; color: var(--text2); line-height: 1.7;
+  .elo-modal-backdrop.open { opacity: 1; pointer-events: auto; }
+  .elo-modal {
+    background: var(--card); border-radius: var(--radius); box-shadow: 0 12px 48px rgba(22,25,45,0.25);
+    width: 520px; max-width: 92vw; max-height: 85vh; overflow-y: auto;
+    transform: translateY(20px) scale(0.96); transition: transform 0.25s cubic-bezier(0.22,1,0.36,1);
+    border: 1px solid var(--border);
   }
-  .elo-team.expanded .elo-details { display: block; }
-  .elo-detail-row { display: flex; justify-content: space-between; }
-  .elo-detail-label { color: var(--muted); }
-  .elo-detail-value { font-family: var(--mono); font-weight: 600; }
-  .elo-detail-value.positive { color: var(--green); }
-  .elo-detail-value.negative { color: var(--red); }
-  .elo-calc-note {
-    font-size: 10px; color: var(--dim); margin-top: 6px; padding-top: 6px;
-    border-top: 1px dashed var(--border); line-height: 1.5;
+  .elo-modal-backdrop.open .elo-modal { transform: translateY(0) scale(1); }
+  .elo-modal-header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 24px 28px 18px; border-bottom: 1px solid var(--border);
+  }
+  .elo-modal-rank {
+    font-family: var(--display); font-size: 36px; color: var(--dim);
+    min-width: 44px; text-align: center;
+  }
+  .elo-modal-rank.top3 { color: var(--orange); }
+  .elo-modal-tricode { font-family: var(--display); font-size: 32px; letter-spacing: 2px; color: var(--text); }
+  .elo-modal-rating { font-family: var(--mono); font-size: 20px; font-weight: 700; color: var(--purple); margin-left: 8px; }
+  .elo-modal-record { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .elo-modal-close {
+    margin-left: auto; width: 32px; height: 32px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text2);
+    font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .elo-modal-close:hover { background: var(--border); border-color: var(--muted); }
+  .elo-modal-body { padding: 22px 28px 28px; }
+  .elo-modal-stats {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px;
+  }
+  .elo-modal-stat {
+    background: var(--bg); border-radius: var(--radius-sm); padding: 14px 16px;
+    border: 1px solid var(--border);
+  }
+  .elo-modal-stat-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 4px;
+  }
+  .elo-modal-stat-value { font-family: var(--display); font-size: 28px; color: var(--text); line-height: 1; }
+  .elo-modal-stat-value.positive { color: var(--green); }
+  .elo-modal-stat-value.negative { color: var(--red); }
+  .elo-modal-bar-section { margin-bottom: 20px; }
+  .elo-modal-bar-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; display: flex; justify-content: space-between; }
+  .elo-modal-bar-outer { height: 10px; background: var(--bg); border-radius: 5px; overflow: hidden; border: 1px solid var(--border); }
+  .elo-modal-bar-fill { height: 100%; border-radius: 5px; transition: width 0.4s ease; }
+  .elo-modal-calc {
+    background: var(--bg); border-radius: var(--radius-sm); padding: 16px 18px;
+    border: 1px solid var(--border); font-size: 12px; color: var(--text2); line-height: 1.8;
+  }
+  .elo-modal-calc strong { color: var(--text); }
+  .elo-modal-calc code {
+    font-family: var(--mono); font-size: 11px; background: var(--card);
+    padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border);
   }
 </style>
 </head>
@@ -573,6 +616,10 @@
 
   <div id="refresh-note" style="display:none"></div>
 </main>
+
+<div class="elo-modal-backdrop" id="elo-modal-backdrop">
+  <div class="elo-modal" id="elo-modal"></div>
+</div>
 
 <script>
 const API = '';
@@ -1044,6 +1091,7 @@ fetchEloMap = async function() {
 fetchEloMap();
 
 // ── Elo rankings ──
+let _eloTeamsCache = [];
 async function loadElo() {
   const container = document.getElementById('elo-container');
   try {
@@ -1051,47 +1099,106 @@ async function loadElo() {
     if (!r.ok) { container.innerHTML = '<div style="color:var(--muted);font-size:12px;">Elo ratings building…</div>'; return; }
     const data = await r.json();
     const teams = data.teams || [];
+    _eloTeamsCache = teams;
     if (teams.length === 0) { container.innerHTML = '<div style="color:var(--muted);font-size:12px;">No ratings available</div>'; return; }
     const maxRating = teams[0].rating;
     const minRating = teams[teams.length - 1].rating;
     const range = maxRating - minRating || 1;
     document.getElementById('elo-badge').textContent = `${data.games_processed.toLocaleString()} games analyzed`;
-    container.innerHTML = '<div class="elo-grid">' + teams.map(t => {
+    container.innerHTML = '<div class="elo-grid">' + teams.map((t, idx) => {
       const pct = Math.round(((t.rating - minRating) / range) * 100);
       const rankClass = t.rank <= 3 ? 'elo-rank top3' : 'elo-rank';
-      const delta = t.rating - 1500;
-      const deltaClass = delta >= 0 ? 'positive' : 'negative';
-      const deltaStr = delta >= 0 ? '+' + Math.round(delta) : String(Math.round(delta));
-      const winPct = t.games > 0 ? ((t.wins / t.games) * 100).toFixed(1) : '0.0';
-      const kFactor = 'K=20 (reg), K=32 (playoff)';
-      return `<div class="elo-team" onclick="this.classList.toggle('expanded')">
+      return `<div class="elo-team" onclick="openEloModal(${idx})">
         <span class="${rankClass}">${t.rank}</span>
         <div class="elo-info">
           <div class="elo-tricode">${t.tricode} <span class="elo-rating">${Math.round(t.rating)}</span></div>
           <div class="elo-record">${t.wins}W – ${t.losses}L</div>
         </div>
         <div class="elo-bar-outer"><div class="elo-bar-fill" style="width:${pct}%"></div></div>
-        <span class="elo-expand-icon">▼</span>
-        <div class="elo-details">
-          <div class="elo-detail-row"><span class="elo-detail-label">Elo Rating</span><span class="elo-detail-value">${Math.round(t.rating)}</span></div>
-          <div class="elo-detail-row"><span class="elo-detail-label">Delta from 1500</span><span class="elo-detail-value ${deltaClass}">${deltaStr}</span></div>
-          <div class="elo-detail-row"><span class="elo-detail-label">Win %</span><span class="elo-detail-value">${winPct}%</span></div>
-          <div class="elo-detail-row"><span class="elo-detail-label">Games Played</span><span class="elo-detail-value">${t.games}</span></div>
-          <div class="elo-detail-row"><span class="elo-detail-label">Record</span><span class="elo-detail-value">${t.wins}W – ${t.losses}L</span></div>
-          <div class="elo-calc-note">
-            <strong>How Elo is calculated:</strong><br>
-            Starting rating: 1500 | ${kFactor}<br>
-            Home court: +100 pts | Season reset: 25% regress to mean<br>
-            Expected = 1 / (1 + 10^(-(Elo_home + 100 - Elo_away) / 400))<br>
-            New = Old + K × (Result - Expected)
-          </div>
-        </div>
       </div>`;
     }).join('') + '</div>';
   } catch {
     container.innerHTML = '<div style="color:var(--muted);font-size:12px;">Elo ratings unavailable</div>';
   }
 }
+
+// ── Elo modal ──
+function openEloModal(idx) {
+  const t = _eloTeamsCache[idx];
+  if (!t) return;
+  const backdrop = document.getElementById('elo-modal-backdrop');
+  const modal = document.getElementById('elo-modal');
+  const delta = t.rating - 1500;
+  const deltaClass = delta >= 0 ? 'positive' : 'negative';
+  const deltaStr = delta >= 0 ? '+' + Math.round(delta) : String(Math.round(delta));
+  const winPct = t.games > 0 ? ((t.wins / t.games) * 100).toFixed(1) : '0.0';
+  const maxRating = _eloTeamsCache[0].rating;
+  const minRating = _eloTeamsCache[_eloTeamsCache.length - 1].rating;
+  const range = maxRating - minRating || 1;
+  const pct = Math.round(((t.rating - minRating) / range) * 100);
+  const rankClass = t.rank <= 3 ? 'elo-modal-rank top3' : 'elo-modal-rank';
+
+  modal.innerHTML = `
+    <div class="elo-modal-header">
+      <span class="${rankClass}">#${t.rank}</span>
+      <div>
+        <div><span class="elo-modal-tricode">${t.tricode}</span><span class="elo-modal-rating">${Math.round(t.rating)}</span></div>
+        <div class="elo-modal-record">${t.wins}W – ${t.losses}L</div>
+      </div>
+      <button class="elo-modal-close" onclick="closeEloModal()">&times;</button>
+    </div>
+    <div class="elo-modal-body">
+      <div class="elo-modal-stats">
+        <div class="elo-modal-stat">
+          <div class="elo-modal-stat-label">Elo Rating</div>
+          <div class="elo-modal-stat-value">${Math.round(t.rating)}</div>
+        </div>
+        <div class="elo-modal-stat">
+          <div class="elo-modal-stat-label">Delta from 1500</div>
+          <div class="elo-modal-stat-value ${deltaClass}">${deltaStr}</div>
+        </div>
+        <div class="elo-modal-stat">
+          <div class="elo-modal-stat-label">Win Rate</div>
+          <div class="elo-modal-stat-value">${winPct}%</div>
+        </div>
+        <div class="elo-modal-stat">
+          <div class="elo-modal-stat-label">Games Played</div>
+          <div class="elo-modal-stat-value">${t.games}</div>
+        </div>
+      </div>
+      <div class="elo-modal-bar-section">
+        <div class="elo-modal-bar-label"><span>Rating strength</span><span>${Math.round(t.rating)} / ${Math.round(maxRating)}</span></div>
+        <div class="elo-modal-bar-outer">
+          <div class="elo-modal-bar-fill" style="width:${pct}%;background:linear-gradient(90deg, var(--green), var(--teal));"></div>
+        </div>
+      </div>
+      <div class="elo-modal-calc">
+        <strong>How Elo is calculated</strong><br><br>
+        Every team starts at <code>1500</code>. After each game, ratings update based on the result vs. expectation.<br><br>
+        <strong>K-Factor:</strong> <code>K=20</code> regular season, <code>K=32</code> playoffs (upsets matter more in postseason)<br>
+        <strong>Home Court:</strong> <code>+100 pts</code> added to home team's rating for expected score calc<br>
+        <strong>Season Reset:</strong> <code>25%</code> regression toward 1500 at the start of each season<br><br>
+        <strong>Expected score:</strong><br>
+        <code>E = 1 / (1 + 10 ^ (-(Elo_home + 100 - Elo_away) / 400))</code><br><br>
+        <strong>Rating update:</strong><br>
+        <code>New = Old + K × (Result - Expected)</code><br>
+        <span style="color:var(--muted);font-size:11px;">Result = 1.0 for a win, 0.0 for a loss</span>
+      </div>
+    </div>`;
+  backdrop.classList.add('open');
+}
+
+function closeEloModal() {
+  document.getElementById('elo-modal-backdrop').classList.remove('open');
+}
+
+// Close modal on backdrop click or Escape
+document.getElementById('elo-modal-backdrop').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeEloModal();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeEloModal();
+});
 
 // ── Refresh (with Elo) ──
 async function refreshAll() {

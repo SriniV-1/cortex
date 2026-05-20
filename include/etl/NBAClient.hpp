@@ -13,8 +13,15 @@
 #include <vector>
 #include <optional>
 #include <cstdint>
+#include <stdexcept>
 
 namespace cortex::etl {
+
+// Thrown when the S3 feed returns 403/404 — game simply doesn't exist in the
+// feed. Callers can catch this separately to avoid logging expected misses.
+struct HttpNotFoundError : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
 
 // ── Data structures ────────────────────────────────────────────────────────
 
@@ -101,9 +108,12 @@ public:
     std::optional<BoxScore> fetch_boxscore(const std::string& game_id) const;
 
     // Derive game IDs for a full season by iterating the known counter range.
-    // Season format: 2023 → game IDs "0022300001" through "0022301230"
-    // (Regular season only. Encodes: 00=league, 2=regular, 23=season, NNNNN=counter)
-    static std::vector<std::string> game_ids_for_season(int season, int count = 1230);
+    // season_type: 2 = regular season (prefix 002, up to ~1230 games)
+    //              4 = playoffs       (prefix 004, up to ~400 IDs covers all rounds)
+    // Season format: 2023, type=2 → "0022300001" .. "0022301230"
+    //                2023, type=4 → "0042300001" .. "0042300400"
+    static std::vector<std::string> game_ids_for_season(int season, int count = 1230,
+                                                         int season_type = 2);
 
 private:
     struct Impl;

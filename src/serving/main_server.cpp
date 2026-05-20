@@ -12,9 +12,13 @@
 #include "stream/StreamProcessor.hpp"
 #include "stream/StatAccumulator.hpp"
 #include "analytics/WinProbModel.hpp"
+#include "analytics/GameStateIndex.hpp"
 #include "etl/LiveIngestor.hpp"
+#include "etl/NBAClient.hpp"
+#include "etl/BulkInserter.hpp"
 #include "common/Logger.hpp"
 
+#include <pqxx/pqxx>
 #include <algorithm>
 #include <csignal>
 #include <atomic>
@@ -76,6 +80,111 @@ int main(int argc, char** argv) {
     StatAccumulator         accumulator;
     RedisCache              cache(redis_host, redis_port);
 
+    // ── Similarity index (built in background — HTTP server starts immediately) ──
+    GameStateIndex sim_index;
+    std::jthread   sim_builder;
+    if (!db_conn.empty()) {
+        sim_builder = std::jthread([&]() {
+            try {
+                pqxx::connection build_conn(db_conn);
+                sim_index.build_from_db(build_conn);
+            } catch (const std::exception& e) {
+                auto lg = cortex::get_logger("similarity");
+                lg->warn("Similarity index build skipped: {}", e.what());
+            }
+        });
+    }
+
+    // ── Daily data refresh ────────────────────────────────────────────────
+    // Runs once per day at ~4 AM local time. Fetches only the current NBA
+    // season; BulkInserter uses ON CONFLICT DO NOTHING so re-runs are safe
+    // and only new games are inserted.
+    auto current_nba_season = []() -> int {
+        auto now  = std::chrono::system_clock::now();
+        std::time_t t = std::chrono::system_clock::to_time_t(now);
+        std::tm *lt = std::localtime(&t);
+        int year  = lt->tm_year + 1900;
+        int month = lt->tm_mon + 1;   // 1-based
+        // NBA season start year: October onwards belongs to 'year', else 'year-1'
+        return (month >= 10) ? year : year - 1;
+    };
+
+    // Seconds until next 4:00 AM local time.
+    auto secs_until_4am = []() -> long {
+        auto now  = std::chrono::system_clock::now();
+        std::time_t t = std::chrono::system_clock::to_time_t(now);
+        std::tm *lt = std::localtime(&t);
+        std::tm target = *lt;
+        target.tm_hour = 4; target.tm_min = 0; target.tm_sec = 0;
+        std::time_t t4 = std::mktime(&target);
+        if (t4 <= t) t4 += 86400;   // already past 4 AM today → tomorrow
+        return static_cast<long>(t4 - t);
+    };
+
+    std::jthread daily_refresher;
+    if (!db_conn.empty()) {
+        daily_refresher = std::jthread([&, current_nba_season, secs_until_4am](
+                                           std::stop_token stop) {
+            auto rlog = cortex::get_logger("refresh");
+            // Wait until next 4 AM before the first run.
+            long wait = secs_until_4am();
+            rlog->info("Daily refresh scheduled in {:.1f} hours", wait / 3600.0);
+            std::this_thread::sleep_for(std::chrono::seconds(wait));
+
+            while (!stop.stop_requested()) {
+                int season = current_nba_season();
+                rlog->info("Daily refresh: loading season {} (regular + playoffs) …", season);
+                try {
+                    cortex::etl::NBAClient   client(150);
+                    cortex::etl::BulkInserter inserter(db_conn);
+                    int new_games = 0;
+
+                    // Regular season
+                    auto reg_ids = cortex::etl::NBAClient::game_ids_for_season(season, 1230, 2);
+                    for (const auto& gid : reg_ids) {
+                        if (stop.stop_requested()) break;
+                        auto pbp = client.fetch_play_by_play(gid);
+                        if (pbp) {
+                            int64_t n = inserter.bulk_insert_play_by_play(*pbp, season);
+                            if (n > 0) ++new_games;
+                        }
+                    }
+
+                    // Playoffs (up to 400 IDs covers all rounds)
+                    auto po_ids = cortex::etl::NBAClient::game_ids_for_season(season, 400, 4);
+                    for (const auto& gid : po_ids) {
+                        if (stop.stop_requested()) break;
+                        auto pbp = client.fetch_play_by_play(gid);
+                        if (pbp) {
+                            int64_t n = inserter.bulk_insert_play_by_play(*pbp, season);
+                            if (n > 0) ++new_games;
+                        }
+                    }
+
+                    rlog->info("Daily refresh complete: {} new games inserted", new_games);
+
+                    // Refresh materialized view so leaderboard picks up new data.
+                    if (new_games > 0) {
+                        try {
+                            pqxx::connection mv_conn(db_conn);
+                            pqxx::work mv_txn(mv_conn);
+                            rlog->info("Refreshing player_game_stats materialized view…");
+                            mv_txn.exec("REFRESH MATERIALIZED VIEW CONCURRENTLY player_game_stats");
+                            mv_txn.commit();
+                            rlog->info("Materialized view refreshed.");
+                        } catch (const std::exception& e) {
+                            rlog->warn("Materialized view refresh failed: {}", e.what());
+                        }
+                    }
+                } catch (const std::exception& e) {
+                    rlog->warn("Daily refresh failed: {}", e.what());
+                }
+                // Sleep until next 4 AM.
+                std::this_thread::sleep_for(std::chrono::seconds(secs_until_4am()));
+            }
+        });
+    }
+
     // Win probability model (optional — degrades gracefully if file missing)
     std::unique_ptr<WinProbModel> win_prob_model;
     try {
@@ -90,9 +199,10 @@ int main(int argc, char** argv) {
 
     // ── HTTP server ───────────────────────────────────────────────────────
     HttpServer::Config server_cfg;
-    server_cfg.port        = port;
-    server_cfg.db_conn_str = db_conn;
-    server_cfg.www_root    = www_root;
+    server_cfg.port              = port;
+    server_cfg.db_conn_str       = db_conn;
+    server_cfg.www_root          = www_root;
+    server_cfg.game_state_index  = &sim_index;
 
     HttpServer server(server_cfg, accumulator);
     g_server = &server;

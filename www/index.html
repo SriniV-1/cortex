@@ -4,605 +4,846 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cortex — NBA Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Poppins:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;700&display=swap');
-
   :root {
-    --bg:       #0a0c10;
-    --surface:  #111318;
-    --border:   #1e2230;
-    --text:     #e8eaf0;
-    --muted:    #5a6070;
-    --accent:   #f97316;
-    --green:    #22c55e;
-    --red:      #ef4444;
-    --blue:     #3b82f6;
-    --mono:     'DM Mono', monospace;
-    --sans:     'DM Sans', sans-serif;
+    --bg:        #f4f6fc;
+    --card:      #ffffff;
+    --border:    #e4e9f5;
+    --text:      #16192d;
+    --text2:     #4a5180;
+    --muted:     #8892b8;
+    --dim:       #b4bcd8;
+    --orange:    #ff5722;
+    --orange-lt: #fff3f0;
+    --blue:      #2979ff;
+    --blue-lt:   #eef4ff;
+    --green:     #00c853;
+    --green-lt:  #e8faf0;
+    --purple:    #7c4dff;
+    --purple-lt: #f3efff;
+    --red:       #f44336;
+    --yellow:    #ffb300;
+    --teal:      #00bcd4;
+    --teal-lt:   #e0f7fa;
+    --radius:    16px;
+    --radius-sm: 10px;
+    --shadow:    0 2px 12px rgba(22,25,45,0.07);
+    --shadow-md: 0 4px 20px rgba(22,25,45,0.10);
+    --display:   'Bebas Neue', sans-serif;
+    --body:      'Poppins', sans-serif;
+    --mono:      'JetBrains Mono', monospace;
   }
-
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: var(--sans);
+    font-family: var(--body);
     font-size: 14px;
     min-height: 100vh;
   }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: radial-gradient(circle, rgba(124,77,255,0.04) 1px, transparent 1px);
+    background-size: 24px 24px;
+    pointer-events: none;
+  }
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-  /* ── Header ── */
+  /* ── Header ─────────────────────────────────────────────────────────────── */
   header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 18px 32px;
+    background: var(--card);
     border-bottom: 1px solid var(--border);
-    position: sticky;
-    top: 0;
-    background: rgba(10, 12, 16, 0.95);
-    backdrop-filter: blur(8px);
-    z-index: 100;
+    box-shadow: var(--shadow);
+    position: sticky; top: 0; z-index: 50;
+    padding: 0 28px; height: 58px;
+    display: flex; align-items: center; justify-content: space-between;
   }
-  .logo {
-    font-family: var(--mono);
-    font-size: 18px;
-    font-weight: 500;
-    color: var(--accent);
-    letter-spacing: -0.5px;
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--orange), var(--yellow));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--display); font-size: 20px; color: white;
+    box-shadow: 0 3px 10px rgba(255,87,34,0.35);
   }
-  .logo span { color: var(--muted); }
+  .logo-text { font-family: var(--display); font-size: 24px; letter-spacing: 3px; color: var(--text); }
+  .logo-sub { font-size: 10px; font-weight: 500; color: var(--muted); letter-spacing: 0.5px; }
+  .header-right { display: flex; align-items: center; gap: 10px; }
   .status-pill {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--muted);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    padding: 5px 12px;
-    border-radius: 20px;
+    display: flex; align-items: center; gap: 7px;
+    font-size: 12px; font-weight: 500; color: var(--text2);
+    background: var(--bg); border: 1px solid var(--border);
+    padding: 6px 14px; border-radius: 20px;
   }
-  .dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: var(--muted);
-  }
-  .dot.live { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 1.8s infinite; }
-  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .dot.live { background: var(--green); box-shadow: 0 0 0 3px rgba(0,200,83,0.25); animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{box-shadow:0 0 0 3px rgba(0,200,83,0.25);}50%{box-shadow:0 0 0 6px rgba(0,200,83,0.08);} }
 
-  /* ── Layout ── */
+  /* ── Main ───────────────────────────────────────────────────────────────── */
   main {
     max-width: 1200px;
     margin: 0 auto;
-    padding: 32px 32px 64px;
-    display: grid;
-    gap: 24px;
+    padding: 24px 24px 60px;
+    display: flex; flex-direction: column; gap: 20px;
   }
 
-  /* ── Section headers ── */
-  .section-title {
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 14px;
-  }
-
-  /* ── Cards ── */
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 22px 24px;
-  }
-
-  /* ── Stat chips row ── */
-  .stats-row {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-  }
-  @media (max-width: 800px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
+  /* ── Stat chips ─────────────────────────────────────────────────────────── */
+  .chips-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 800px) { .chips-row { grid-template-columns: repeat(2, 1fr); } }
   .stat-chip {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 20px 22px;
+    background: var(--card);
+    border-radius: var(--radius); padding: 18px 20px;
+    box-shadow: var(--shadow); border: 1px solid var(--border);
+    position: relative; overflow: hidden;
+    animation: chipIn 0.4s ease both;
   }
-  .stat-chip .label {
-    font-size: 11px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 8px;
+  .stat-chip:nth-child(1){animation-delay:.05s} .stat-chip:nth-child(2){animation-delay:.10s}
+  .stat-chip:nth-child(3){animation-delay:.15s} .stat-chip:nth-child(4){animation-delay:.20s}
+  @keyframes chipIn { from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);} }
+  .stat-chip .chip-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center; font-size: 17px; margin-bottom: 10px;
   }
-  .stat-chip .value {
-    font-family: var(--mono);
-    font-size: 28px;
-    font-weight: 500;
-    color: var(--text);
-    line-height: 1;
+  .stat-chip:nth-child(1) .chip-icon{background:var(--blue-lt)} .stat-chip:nth-child(2) .chip-icon{background:var(--orange-lt)}
+  .stat-chip:nth-child(3) .chip-icon{background:var(--green-lt)} .stat-chip:nth-child(4) .chip-icon{background:var(--purple-lt)}
+  .stat-chip .chip-label { font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .stat-chip .chip-value { font-family: var(--display); font-size: 38px; color: var(--text); line-height: 1; }
+  .stat-chip .chip-sub { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .stat-chip::after {
+    content: ''; position: absolute; bottom: -18px; right: -18px; width: 70px; height: 70px;
+    border-radius: 50%; opacity: 0.06;
   }
-  .stat-chip .sub {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--muted);
-    margin-top: 5px;
+  .stat-chip:nth-child(1)::after{background:var(--blue)} .stat-chip:nth-child(2)::after{background:var(--orange)}
+  .stat-chip:nth-child(3)::after{background:var(--green)} .stat-chip:nth-child(4)::after{background:var(--purple)}
+
+  /* ── Card ───────────────────────────────────────────────────────────────── */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius); padding: 20px 22px;
+    box-shadow: var(--shadow); border: 1px solid var(--border);
+  }
+  .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
+  .section-title { font-size: 17px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .section-badge {
+    font-size: 10px; font-weight: 600; padding: 4px 11px; border-radius: 20px; letter-spacing: 0.3px;
   }
 
-  /* ── Two-column grid ── */
-  .two-col {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 24px;
+  /* ── Stat category tabs ─────────────────────────────────────────────────── */
+  .stat-tabs {
+    display: flex; gap: 6px; flex-wrap: wrap;
   }
-  @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+  .stat-tab {
+    font-family: var(--body); font-size: 12px; font-weight: 600;
+    padding: 5px 14px; border-radius: 20px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text2); cursor: pointer;
+    transition: all 0.15s; letter-spacing: 0.3px;
+  }
+  .stat-tab:hover { border-color: var(--purple); color: var(--purple); background: var(--purple-lt); }
+  .stat-tab.active {
+    background: linear-gradient(135deg, var(--purple), #9c6dff);
+    color: white; border-color: transparent;
+    box-shadow: 0 2px 8px rgba(124,77,255,0.30);
+  }
 
-  /* ── Leaderboard table ── */
+  /* ── Two column ─────────────────────────────────────────────────────────── */
+  .two-col { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+  .right-stack { display: flex; flex-direction: column; gap: 20px; }
+
+  /* ── Leaderboard ────────────────────────────────────────────────────────── */
+  .lb-scroll { max-height: 520px; overflow-y: auto; }
   .lb-table { width: 100%; border-collapse: collapse; }
-  .lb-table th {
-    font-size: 10px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: var(--muted);
-    font-weight: 500;
-    text-align: right;
-    padding: 0 0 12px 16px;
+  .lb-table thead th {
+    font-size: 9px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--muted); text-align: right; padding: 0 0 8px 12px;
+    border-bottom: 2px solid var(--border); position: sticky; top: 0; background: var(--card); z-index: 1;
   }
-  .lb-table th:first-child { text-align: left; padding-left: 0; }
+  .lb-table thead th:first-child { text-align: left; padding-left: 0; }
+  .lb-table tbody tr { border-bottom: 1px solid var(--bg); transition: background 0.12s; }
+  .lb-table tbody tr:last-child { border-bottom: none; }
+  .lb-table tbody tr:hover { background: var(--orange-lt); }
   .lb-table td {
-    padding: 9px 0 9px 16px;
-    text-align: right;
-    border-top: 1px solid var(--border);
-    font-family: var(--mono);
-    font-size: 13px;
-    color: var(--text);
+    padding: 8px 0 8px 12px; text-align: right;
+    font-family: var(--mono); font-size: 12px; color: var(--text2);
   }
   .lb-table td:first-child { text-align: left; padding-left: 0; }
-  .lb-table tr:hover td { background: rgba(255,255,255,0.02); }
+
   .rank {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--muted);
-    min-width: 22px;
-    display: inline-block;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border-radius: 6px;
+    font-size: 12px; font-weight: 700; font-family: var(--body);
+    color: var(--muted); background: var(--bg); margin-right: 4px; vertical-align: middle;
   }
-  .rank.top { color: var(--accent); }
-  .player-name { font-family: var(--sans); font-weight: 500; font-size: 13px; }
+  .rank.top {
+    background: linear-gradient(135deg, var(--orange), var(--yellow));
+    color: white; box-shadow: 0 2px 6px rgba(255,87,34,0.3);
+  }
+  .player-name { font-family: var(--body); font-weight: 600; font-size: 13px; color: var(--text); vertical-align: middle; }
   .team-badge {
-    display: inline-block;
-    font-family: var(--mono);
-    font-size: 10px;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid var(--border);
-    color: var(--muted);
-    padding: 2px 6px;
-    border-radius: 4px;
-    margin-left: 6px;
-    vertical-align: middle;
+    display: inline-block; font-size: 10px; font-weight: 600;
+    background: var(--blue-lt); color: var(--blue); padding: 1px 7px;
+    border-radius: 20px; margin-left: 5px; vertical-align: middle;
   }
-  .ppg-bar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    justify-content: flex-end;
+  .pos-badge {
+    display: inline-block; font-size: 9px; font-weight: 600;
+    background: var(--purple-lt); color: var(--purple); padding: 1px 5px;
+    border-radius: 20px; margin-left: 3px; vertical-align: middle;
   }
-  .bar-bg {
-    width: 60px;
-    height: 4px;
-    background: var(--border);
-    border-radius: 2px;
-    overflow: hidden;
+  .stat-highlight {
+    font-weight: 700; color: var(--orange);
   }
+  .ppg-bar { display: flex; align-items: center; gap: 7px; justify-content: flex-end; }
+  .bar-bg { width: 48px; height: 5px; background: var(--bg); border-radius: 3px; overflow: hidden; }
   .bar-fill {
-    height: 100%;
-    background: var(--accent);
-    border-radius: 2px;
-    transition: width 0.4s ease;
+    height: 100%; border-radius: 3px;
+    background: linear-gradient(90deg, var(--orange), var(--yellow));
+    transition: width 0.5s cubic-bezier(0.25,1,0.5,1);
   }
 
-  /* ── Games list ── */
+  /* ── Games ──────────────────────────────────────────────────────────────── */
+  .games-scroll { max-height: 380px; overflow-y: auto; }
   .game-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 11px 0;
-    border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 10px; border-radius: var(--radius-sm); transition: background 0.12s; margin: 0 -10px;
   }
-  .game-item:first-child { border-top: none; padding-top: 0; }
-  .game-teams {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 13px;
-  }
-  .vs { color: var(--muted); font-size: 11px; }
-  .game-score {
-    font-family: var(--mono);
-    font-size: 15px;
-    font-weight: 500;
-    letter-spacing: 1px;
-  }
-  .game-score .sep { color: var(--muted); margin: 0 4px; }
-  .game-date {
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--muted);
-  }
-  .winner { color: var(--green); }
-  .game-meta {
-    text-align: right;
-    min-width: 80px;
-  }
+  .game-item:hover { background: var(--blue-lt); }
+  .game-matchup { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 5px; }
+  .vs { font-size: 11px; color: var(--muted); font-weight: 500; }
+  .game-date-small { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .game-right { text-align: right; flex-shrink: 0; margin-left: 8px; }
+  .game-score { font-family: var(--display); font-size: 22px; letter-spacing: 2px; line-height: 1; }
+  .game-score .sep { color: var(--dim); margin: 0 2px; }
+  .winner { color: var(--orange); }
   .status-badge {
-    font-family: var(--mono);
-    font-size: 10px;
-    padding: 2px 7px;
-    border-radius: 4px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+    text-transform: uppercase; letter-spacing: 0.5px; display: inline-block; margin-top: 3px;
   }
-  .status-final  { background: rgba(90,96,112,0.15); color: var(--muted); }
-  .status-live   { background: rgba(34,197,94,0.12); color: var(--green); }
-  .status-sched  { background: rgba(59,130,246,0.12); color: var(--blue); }
+  .status-final { background: var(--bg); color: var(--muted); }
+  .status-live  { background: var(--green-lt); color: var(--green); }
+  .status-sched { background: var(--blue-lt); color: var(--blue); }
 
-  /* ── Live stream panel ── */
-  .stream-box {
-    font-family: var(--mono);
-    font-size: 12px;
-    line-height: 1.7;
-    max-height: 220px;
-    overflow-y: auto;
-    color: var(--muted);
+  /* ── Stream ─────────────────────────────────────────────────────────────── */
+  .stream-card {
+    background: #1a1f36; border-radius: var(--radius); overflow: hidden;
+    box-shadow: var(--shadow-md); border: 1px solid #2a3050;
   }
-  .stream-event {
-    padding: 3px 0;
-    border-bottom: 1px solid rgba(30,34,48,0.6);
-    color: var(--text);
-    opacity: 0;
-    animation: fadeIn 0.3s forwards;
+  .stream-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 18px; background: #222845; border-bottom: 1px solid #2a3050;
   }
-  @keyframes fadeIn { to { opacity: 1; } }
-  .stream-event .ts { color: var(--muted); margin-right: 10px; }
-  .stream-empty { color: var(--muted); font-size: 12px; }
-  .stream-box::-webkit-scrollbar { width: 4px; }
-  .stream-box::-webkit-scrollbar-track { background: transparent; }
-  .stream-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .stream-title { font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #4ade80; display: flex; align-items: center; gap: 8px; }
+  .stream-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 0 3px rgba(74,222,128,0.25); }
+  .stream-badge { font-size: 10px; font-weight: 600; color: #4ade80; background: rgba(74,222,128,0.12); border: 1px solid rgba(74,222,128,0.25); padding: 3px 8px; border-radius: 20px; }
+  .stream-body { max-height: 200px; overflow-y: auto; padding: 10px 18px; font-family: var(--mono); font-size: 11px; line-height: 1.8; }
+  .stream-event { border-bottom: 1px solid rgba(255,255,255,0.04); color: #94b4c4; opacity: 0; animation: sfade 0.2s ease forwards; }
+  @keyframes sfade { from{opacity:0;}to{opacity:1;} }
+  .stream-event .ts { color: #4ade80; margin-right: 8px; opacity: 0.7; font-size: 10px; }
+  .stream-empty { color: #334155; font-size: 11px; }
+  .stream-empty::before { content: '$ '; color: #4ade80; opacity: 0.5; }
 
-  /* ── Refresh note ── */
-  .refresh-note {
-    text-align: center;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--muted);
-    padding-top: 8px;
+  /* ── Similarity ─────────────────────────────────────────────────────────── */
+  .sim-outer { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow-md); border: 1px solid var(--border); overflow: hidden; }
+  .sim-header-strip {
+    background: linear-gradient(135deg, #7c4dff 0%, #9c6dff 50%, #4fc3f7 100%);
+    padding: 18px 24px; color: white;
   }
+  .sim-strip-title { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
+  .sim-strip-sub { font-size: 12px; opacity: 0.85; line-height: 1.5; }
+  #sim-index-tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(255,255,255,0.2); border-radius: 20px;
+    padding: 4px 12px; font-size: 11px; font-weight: 600; margin-top: 8px;
+  }
+  .sim-body { padding: 20px 24px; }
+  .sim-controls { display: grid; grid-template-columns: repeat(4, 1fr) auto; gap: 12px; align-items: flex-end; margin-bottom: 14px; }
+  @media (max-width: 800px) { .sim-controls { grid-template-columns: repeat(2, 1fr); } .sim-btn-wrap { grid-column: 1/-1; } }
+  .sim-field { display: flex; flex-direction: column; gap: 4px; }
+  .sim-field label { font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+  .sim-field input {
+    font-family: var(--mono); font-size: 16px; font-weight: 700;
+    background: var(--bg); border: 2px solid var(--border); color: var(--text);
+    padding: 8px 10px; border-radius: var(--radius-sm); width: 100%; outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .sim-field input:focus { border-color: var(--purple); box-shadow: 0 0 0 4px rgba(124,77,255,0.12); }
+  .sim-btn {
+    font-family: var(--body); font-size: 14px; font-weight: 700;
+    background: linear-gradient(135deg, var(--purple), #9c6dff); color: #fff;
+    border: none; padding: 10px 22px; border-radius: var(--radius-sm); cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s; white-space: nowrap;
+    box-shadow: 0 4px 14px rgba(124,77,255,0.35);
+  }
+  .sim-btn:hover { opacity: 0.9; transform: translateY(-2px); }
+  .sim-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+  .sim-meta { font-family: var(--mono); font-size: 11px; color: var(--green); margin-bottom: 16px; min-height: 18px; font-weight: 500; }
+  .sim-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+  .sim-card {
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 14px 14px; transition: transform 0.15s, box-shadow 0.15s;
+    opacity: 0; animation: simIn 0.3s ease both;
+  }
+  .sim-card:nth-child(1){animation-delay:.03s} .sim-card:nth-child(2){animation-delay:.06s}
+  .sim-card:nth-child(3){animation-delay:.09s} .sim-card:nth-child(4){animation-delay:.12s}
+  .sim-card:nth-child(5){animation-delay:.15s} .sim-card:nth-child(6){animation-delay:.18s}
+  .sim-card:nth-child(7){animation-delay:.21s} .sim-card:nth-child(8){animation-delay:.24s}
+  .sim-card:nth-child(9){animation-delay:.27s} .sim-card:nth-child(10){animation-delay:.30s}
+  @keyframes simIn { from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);} }
+  .sim-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
+  .sim-card-header { display: flex; justify-content: space-between; margin-bottom: 5px; }
+  .sim-matchup { font-weight: 700; font-size: 13px; }
+  .sim-similarity { font-family: var(--display); font-size: 20px; background: linear-gradient(135deg, var(--purple), #9c6dff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .sim-score { font-family: var(--display); font-size: 24px; letter-spacing: 2px; line-height: 1; margin-bottom: 5px; }
+  .sim-details { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  .outcome-win  { color: var(--green); font-weight: 700; }
+  .outcome-loss { color: var(--red); font-weight: 700; }
 
-  /* ── Loading skeleton ── */
-  .skeleton {
-    background: linear-gradient(90deg, var(--border) 25%, rgba(40,46,60,0.5) 50%, var(--border) 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.4s infinite;
-    border-radius: 4px;
-    height: 14px;
-    margin: 6px 0;
-  }
-  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .skeleton { background: linear-gradient(90deg, var(--bg) 25%, var(--border) 50%, var(--bg) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite linear; height: 14px; margin: 8px 0; border-radius: 7px; }
+  @keyframes shimmer { 0%{background-position:200% 0;}100%{background-position:-200% 0;} }
+  .error-msg { color: var(--red); font-size: 12px; padding: 10px 0; font-weight: 500; }
+  #refresh-note { display: none; }
 
-  /* ── Error state ── */
-  .error-msg {
-    color: var(--red);
-    font-family: var(--mono);
-    font-size: 12px;
-    padding: 12px 0;
+  /* ── Search bars ─────────────────────────────────────────────────────────── */
+  .search-wrap {
+    position: relative; margin-bottom: 12px;
   }
+  .search-input {
+    width: 100%; font-family: var(--body); font-size: 13px;
+    background: var(--bg); border: 2px solid var(--border); color: var(--text);
+    padding: 9px 12px 9px 34px; border-radius: var(--radius-sm); outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .search-input:focus { border-color: var(--purple); box-shadow: 0 0 0 4px rgba(124,77,255,0.12); }
+  .search-input::placeholder { color: var(--dim); }
+  .search-icon {
+    position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+    font-size: 14px; color: var(--dim); pointer-events: none;
+  }
+  .search-results-overlay {
+    position: absolute; left: 0; right: 0; top: 100%; z-index: 100;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md); max-height: 350px; overflow-y: auto; display: none;
+  }
+  .search-results-overlay.open { display: block; }
+  .search-result-item {
+    padding: 10px 14px; border-bottom: 1px solid var(--bg); cursor: pointer;
+    transition: background 0.1s;
+  }
+  .search-result-item:hover { background: var(--purple-lt); }
+  .search-result-item:last-child { border-bottom: none; }
+  .sr-name { font-weight: 600; font-size: 13px; color: var(--text); }
+  .sr-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .sr-stats { display: flex; gap: 12px; margin-top: 4px; font-family: var(--mono); font-size: 11px; color: var(--text2); }
+  .sr-stat-val { font-weight: 700; color: var(--orange); }
+
+  /* ── Win probability banner ─────────────────────────────────────────────── */
+  .win-prob-banner {
+    display: flex; align-items: center; gap: 16px;
+    background: linear-gradient(135deg, #1a1f36, #222845);
+    border-radius: var(--radius-sm); padding: 14px 20px; margin-bottom: 14px;
+    color: white;
+  }
+  .win-prob-banner .wp-label { font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; opacity: 0.7; }
+  .win-prob-banner .wp-value { font-family: var(--display); font-size: 36px; line-height: 1; }
+  .win-prob-banner .wp-bar-outer { flex: 1; height: 8px; background: rgba(255,255,255,0.15); border-radius: 4px; overflow: hidden; }
+  .win-prob-banner .wp-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+  .win-prob-banner .wp-home-fill { background: linear-gradient(90deg, #4ade80, #22c55e); }
+  .win-prob-banner .wp-away-fill { background: linear-gradient(90deg, #f87171, #ef4444); }
+  .wp-sides { display: flex; justify-content: space-between; font-size: 10px; opacity: 0.6; margin-top: 2px; }
 </style>
 </head>
 <body>
 
 <header>
-  <div class="logo">CORTEX<span>/nba</span></div>
-  <div class="status-pill">
-    <div class="dot" id="server-dot"></div>
-    <span id="server-status">connecting…</span>
+  <div class="logo">
+    <div class="logo-icon">C</div>
+    <div>
+      <div class="logo-text">CORTEX</div>
+      <div class="logo-sub">NBA Analytics Engine</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <span style="font-size:11px;color:var(--muted);font-family:var(--mono)" id="refresh-time">—</span>
+    <div class="status-pill">
+      <div class="dot" id="server-dot"></div>
+      <span id="server-status">connecting…</span>
+    </div>
   </div>
 </header>
 
 <main>
 
   <!-- Stat chips -->
-  <div class="stats-row">
+  <div class="chips-row">
     <div class="stat-chip">
-      <div class="label">Total Games</div>
-      <div class="value" id="chip-games">—</div>
-      <div class="sub">2019 – 2025</div>
+      <div class="chip-icon">🏀</div>
+      <div class="chip-label">Total Games</div>
+      <div class="chip-value" id="chip-games">—</div>
+      <div class="chip-sub">regular season + playoffs</div>
     </div>
     <div class="stat-chip">
-      <div class="label">Play Events</div>
-      <div class="value" id="chip-events">—</div>
-      <div class="sub">indexed + searchable</div>
+      <div class="chip-icon">⚡</div>
+      <div class="chip-label">Play Events</div>
+      <div class="chip-value" id="chip-events">—</div>
+      <div class="chip-sub">indexed + searchable</div>
     </div>
     <div class="stat-chip">
-      <div class="label">Players Tracked</div>
-      <div class="value" id="chip-players">—</div>
-      <div class="sub">active roster</div>
+      <div class="chip-icon">👤</div>
+      <div class="chip-label">Players Tracked</div>
+      <div class="chip-value" id="chip-players">—</div>
+      <div class="chip-sub">across all seasons</div>
     </div>
     <div class="stat-chip">
-      <div class="label">Stream Events</div>
-      <div class="value" id="chip-stream">—</div>
-      <div class="sub" id="chip-stream-sub">events processed</div>
+      <div class="chip-icon">📡</div>
+      <div class="chip-label">Live Processed</div>
+      <div class="chip-value" id="chip-stream">—</div>
+      <div class="chip-sub" id="chip-stream-sub">events processed</div>
     </div>
   </div>
 
-  <!-- Main content -->
+  <!-- Leaderboard + right panels -->
   <div class="two-col">
 
-    <!-- Leaderboard -->
     <div class="card">
-      <div class="section-title">Top Scorers — 2019–2025 corpus</div>
-      <div id="leaderboard-container">
-        <div class="skeleton" style="width:100%"></div>
-        <div class="skeleton" style="width:85%"></div>
-        <div class="skeleton" style="width:92%"></div>
-        <div class="skeleton" style="width:78%"></div>
-        <div class="skeleton" style="width:88%"></div>
+      <div class="section-head">
+        <div class="section-title">🏆 Leaderboard</div>
+        <div class="stat-tabs" id="stat-tabs">
+          <button class="stat-tab active" data-stat="ppg">PPG</button>
+          <button class="stat-tab" data-stat="rpg">RPG</button>
+          <button class="stat-tab" data-stat="spg">SPG</button>
+          <button class="stat-tab" data-stat="bpg">BPG</button>
+          <button class="stat-tab" data-stat="fg_pct">FG%</button>
+          <button class="stat-tab" data-stat="ft_pct">FT%</button>
+        </div>
+      </div>
+      <div class="search-wrap" id="player-search-wrap">
+        <span class="search-icon">🔍</span>
+        <input class="search-input" id="player-search" type="text" placeholder="Search players… (e.g. LeBron, Curry)" autocomplete="off">
+        <div class="search-results-overlay" id="player-search-results"></div>
+      </div>
+      <div class="lb-scroll">
+        <div id="leaderboard-container">
+          <div class="skeleton" style="width:100%"></div><div class="skeleton" style="width:88%"></div>
+          <div class="skeleton" style="width:94%"></div><div class="skeleton" style="width:80%"></div>
+          <div class="skeleton" style="width:91%"></div><div class="skeleton" style="width:86%"></div>
+        </div>
       </div>
     </div>
 
-    <!-- Recent games + live feed -->
-    <div style="display:flex; flex-direction:column; gap:24px;">
-
+    <div class="right-stack">
       <div class="card">
-        <div class="section-title">Recent Games</div>
-        <div id="games-container">
-          <div class="skeleton" style="width:100%"></div>
-          <div class="skeleton" style="width:90%"></div>
-          <div class="skeleton" style="width:95%"></div>
+        <div class="section-head">
+          <div class="section-title">📅 Recent Games</div>
+          <div class="stat-tabs" id="game-type-tabs">
+            <button class="stat-tab active" data-type="all">All</button>
+            <button class="stat-tab" data-type="regular">Regular</button>
+            <button class="stat-tab" data-type="playoffs">Playoffs</button>
+          </div>
         </div>
+        <div class="search-wrap" id="game-search-wrap">
+          <span class="search-icon">🔍</span>
+          <input class="search-input" id="game-search" type="text" placeholder="Search by team… (e.g. BOS, LAL, GSW)" autocomplete="off">
+          <div class="search-results-overlay" id="game-search-results"></div>
+        </div>
+        <div class="games-scroll"><div id="games-container">
+          <div class="skeleton" style="width:100%"></div><div class="skeleton" style="width:90%"></div>
+          <div class="skeleton" style="width:95%"></div><div class="skeleton" style="width:83%"></div>
+        </div></div>
       </div>
 
-      <div class="card">
-        <div class="section-title">Live Event Stream</div>
-        <div class="stream-box" id="stream-box">
-          <div class="stream-empty">Waiting for live events… (start server with --live to enable)</div>
+      <div class="stream-card">
+        <div class="stream-head">
+          <div class="stream-title"><span class="stream-dot"></span>Live Stream</div>
+          <span class="stream-badge">WebSocket</span>
         </div>
+        <div class="stream-body"><div id="stream-box">
+          <div class="stream-empty">Waiting for live events… (start server with --live)</div>
+        </div></div>
       </div>
-
     </div>
   </div>
 
-  <div class="refresh-note" id="refresh-note">Auto-refreshes every 30 seconds</div>
+  <!-- Similarity -->
+  <div class="sim-outer" id="sim-panel">
+    <div class="sim-header-strip">
+      <div class="sim-strip-title">🔍 Similar Moments</div>
+      <div class="sim-strip-sub">Find the 10 most similar game states from 3.7 million play events — brute-force NEON SIMD scan.</div>
+      <div id="sim-index-tag">
+        <span id="sim-index-dot" style="width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,0.5);display:inline-block"></span>
+        <span id="sim-index-label">index loading…</span>
+      </div>
+    </div>
+    <div class="sim-body">
+      <div class="sim-controls">
+        <div class="sim-field"><label>Home Score</label><input type="number" id="sim-home" value="105" min="0" max="200"></div>
+        <div class="sim-field"><label>Away Score</label><input type="number" id="sim-away" value="98" min="0" max="200"></div>
+        <div class="sim-field"><label>Quarter</label><input type="number" id="sim-period" value="4" min="1" max="4"></div>
+        <div class="sim-field"><label>Clock (sec)</label><input type="number" id="sim-clock" value="180" min="0" max="720"></div>
+        <div class="sim-btn-wrap" style="display:flex;align-items:flex-end;"><button class="sim-btn" id="sim-btn" onclick="runSimilarity()">🔍 Find Similar</button></div>
+      </div>
+      <div class="sim-meta" id="sim-meta"></div>
+      <div id="win-prob-container"></div>
+      <div class="sim-results" id="sim-results">
+        <div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Enter a game state and click Find Similar.</div>
+      </div>
+    </div>
+  </div>
 
+  <div id="refresh-note" style="display:none"></div>
 </main>
 
 <script>
-const API = '';  // same origin
+const API = '';
+let currentStat = 'ppg';
+let currentGameType = 'all';
 
-// ── Utilities ──────────────────────────────────────────────────────────────
-
+// ── Utilities ──
 function fmt(n) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'K';
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n/1_000).toFixed(1) + 'K';
   return String(n);
 }
-
 function pad2(n) { return String(n).padStart(2, '0'); }
+function nowStr() { const d = new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; }
 
-function nowStr() {
-  const d = new Date();
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
-}
-
-// ── Health check ───────────────────────────────────────────────────────────
-
+// ── Health ──
 async function checkHealth() {
   try {
     const r = await fetch(API + '/health');
-    if (r.ok) {
-      document.getElementById('server-dot').className = 'dot live';
-      document.getElementById('server-status').textContent = 'server online';
-      return true;
-    }
+    if (r.ok) { document.getElementById('server-dot').className = 'dot live'; document.getElementById('server-status').textContent = 'online'; return true; }
   } catch {}
   document.getElementById('server-dot').className = 'dot';
-  document.getElementById('server-status').textContent = 'server offline';
+  document.getElementById('server-status').textContent = 'offline';
   return false;
 }
 
-// ── Live metrics via /metrics ──────────────────────────────────────────────
-
+// ── Stats ──
 async function loadStreamStats() {
+  try { const r = await fetch(API + '/metrics'); if (!r.ok) return; const t = await r.text(); const m = t.match(/cortex_events_processed (\d+)/); if (m) document.getElementById('chip-stream').textContent = fmt(parseInt(m[1])); } catch {}
+}
+async function loadDbStats() {
   try {
-    const r = await fetch(API + '/metrics');
+    const r = await fetch(API + '/api/stats');
     if (!r.ok) return;
-    const text = await r.text();
-    const m = text.match(/cortex_events_processed (\d+)/);
-    if (m) {
-      document.getElementById('chip-stream').textContent = fmt(parseInt(m[1]));
-    }
-  } catch {}
+    const d = await r.json();
+    if (d.total_games) document.getElementById('chip-games').textContent = fmt(d.total_games);
+    if (d.total_players) document.getElementById('chip-players').textContent = fmt(d.total_players);
+    if (d.total_events) document.getElementById('chip-events').textContent = fmt(d.total_events);
+  } catch {
+    document.getElementById('chip-events').textContent = '3.7M';
+  }
 }
 
-// ── Leaderboard ────────────────────────────────────────────────────────────
+// ── Stat labels ──
+const STAT_CONFIG = {
+  ppg:    { label: 'PPG',  col: 'ppg',    fmt: v => v.toFixed(1),  unit: 'pts/game' },
+  rpg:    { label: 'RPG',  col: 'rpg',    fmt: v => v.toFixed(1),  unit: 'reb/game' },
+  spg:    { label: 'SPG',  col: 'spg',    fmt: v => v.toFixed(1),  unit: 'stl/game' },
+  bpg:    { label: 'BPG',  col: 'bpg',    fmt: v => v.toFixed(1),  unit: 'blk/game' },
+  fg_pct: { label: 'FG%',  col: 'fg_pct', fmt: v => v.toFixed(1) + '%', unit: 'field goal %' },
+  ft_pct: { label: 'FT%',  col: 'ft_pct', fmt: v => v.toFixed(1) + '%', unit: 'free throw %' },
+};
 
-async function loadLeaderboard() {
+// ── Leaderboard ──
+async function loadLeaderboard(stat) {
+  stat = stat || currentStat;
   const container = document.getElementById('leaderboard-container');
   try {
-    const r = await fetch(API + '/api/leaderboard');
+    const r = await fetch(API + '/api/leaderboard?stat=' + stat);
     if (!r.ok) { container.innerHTML = '<div class="error-msg">Could not load leaderboard</div>'; return; }
-    const data = await r.json();
-
-    const maxPpg = data.length > 0 ? data[0].ppg : 40;
+    const resp = await r.json();
+    const data = resp.players || resp; // backwards compat
+    const cfg = STAT_CONFIG[stat] || STAT_CONFIG.ppg;
+    const maxVal = data.length > 0 ? (data[0][cfg.col] || 1) : 1;
 
     let html = '<table class="lb-table"><thead><tr>'
-      + '<th>Player</th><th>G</th><th>PTS</th><th>REB</th><th>PPG</th>'
+      + `<th>Player</th><th>G</th><th>PTS</th><th>REB</th><th>${cfg.label}</th>`
       + '</tr></thead><tbody>';
 
     data.forEach(p => {
-      const pct = Math.round((p.ppg / maxPpg) * 100);
+      const val = p[cfg.col] || 0;
+      const pct = Math.round((val / maxVal) * 100);
       const rankClass = p.rank <= 3 ? 'rank top' : 'rank';
+      const posHtml = p.pos ? `<span class="pos-badge">${p.pos}</span>` : '';
       html += `<tr>
         <td>
           <span class="${rankClass}">${p.rank}</span>
           <span class="player-name">${p.name}</span>
           <span class="team-badge">${p.team}</span>
+          ${posHtml}
         </td>
         <td>${p.games}</td>
-        <td>${p.pts.toLocaleString()}</td>
-        <td>${p.reb.toLocaleString()}</td>
+        <td>${(p.pts||0).toLocaleString()}</td>
+        <td>${(p.reb||0).toLocaleString()}</td>
         <td>
           <div class="ppg-bar">
-            <span>${p.ppg.toFixed(1)}</span>
+            <span class="stat-highlight">${cfg.fmt(val)}</span>
             <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
           </div>
         </td>
       </tr>`;
     });
-
     html += '</tbody></table>';
     container.innerHTML = html;
-
-    // Update chips from leaderboard data (total players)
-    document.getElementById('chip-players').textContent = fmt(data.length);
-
   } catch (e) {
     container.innerHTML = '<div class="error-msg">Failed to fetch leaderboard</div>';
   }
 }
 
-// ── Recent games ───────────────────────────────────────────────────────────
+// ── Stat tab clicks ──
+document.getElementById('stat-tabs').addEventListener('click', (e) => {
+  const tab = e.target.closest('.stat-tab');
+  if (!tab) return;
+  document.querySelectorAll('#stat-tabs .stat-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  currentStat = tab.dataset.stat;
+  loadLeaderboard(currentStat);
+});
 
-async function loadGames() {
+// ── Game type tab clicks ──
+document.getElementById('game-type-tabs').addEventListener('click', (e) => {
+  const tab = e.target.closest('.stat-tab');
+  if (!tab) return;
+  document.querySelectorAll('#game-type-tabs .stat-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  currentGameType = tab.dataset.type;
+  loadGames(currentGameType);
+});
+
+// ── Recent games ──
+async function loadGames(type) {
+  type = type || currentGameType;
   const container = document.getElementById('games-container');
   try {
-    const r = await fetch(API + '/api/games/recent');
+    const qs = type !== 'all' ? '?type=' + type : '';
+    const r = await fetch(API + '/api/games/recent' + qs);
     if (!r.ok) { container.innerHTML = '<div class="error-msg">Could not load games</div>'; return; }
     const data = await r.json();
-
     let html = '';
     data.forEach(g => {
       const homeWon = g.home_score > g.away_score;
       const awayWon = g.away_score > g.home_score;
-      const statusMap = { 1: ['status-sched','SCHED'], 2: ['status-live','LIVE'], 3: ['status-final','FINAL'] };
-      const [sc, sl] = statusMap[g.status] || ['status-sched','—'];
-
+      const sm = { 1: ['status-sched','Scheduled'], 2: ['status-live','Live'], 3: ['status-final','Final'] };
+      const [sc,sl] = sm[g.status] || ['status-sched','—'];
       html += `<div class="game-item">
-        <div class="game-teams">
-          <span>${g.away_name}</span>
-          <span class="vs">@</span>
-          <span>${g.home_name}</span>
+        <div>
+          <div class="game-matchup"><span>${g.away_name}</span><span class="vs">@</span><span>${g.home_name}</span></div>
+          <div class="game-date-small">${g.date}</div>
         </div>
-        <div class="game-meta">
-          <div class="game-score">
-            <span class="${awayWon ? 'winner' : ''}">${g.away_score}</span>
-            <span class="sep">–</span>
-            <span class="${homeWon ? 'winner' : ''}">${g.home_score}</span>
-          </div>
-          <div style="margin-top:4px">
-            <span class="status-badge ${sc}">${sl}</span>
-          </div>
-          <div class="game-date" style="margin-top:4px">${g.date}</div>
+        <div class="game-right">
+          <div class="game-score"><span class="${awayWon?'winner':''}">${g.away_score}</span><span class="sep">–</span><span class="${homeWon?'winner':''}">${g.home_score}</span></div>
+          <span class="status-badge ${sc}">${sl}</span>
         </div>
       </div>`;
     });
-
-    container.innerHTML = html || '<div class="stream-empty">No recent games found</div>';
-
-    // Update chips from games count
-    document.getElementById('chip-games').textContent = '6,637';
-
+    container.innerHTML = html || '<div style="color:var(--muted);font-size:12px;padding:8px 0;">No recent games found</div>';
   } catch (e) {
     container.innerHTML = '<div class="error-msg">Failed to fetch games</div>';
   }
 }
 
-// ── Live WebSocket event stream ────────────────────────────────────────────
-
-let ws = null;
-let streamEvents = [];
-const MAX_STREAM = 50;
-
+// ── WebSocket stream ──
+let ws = null; let streamEvents = []; const MAX_STREAM = 50;
 function connectStream(gameId) {
   if (ws) ws.close();
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/live/${gameId}`);
-
-  ws.onmessage = (e) => {
-    try {
-      const ev = JSON.parse(e.data);
-      addStreamEvent(ev);
-    } catch {}
-  };
-
-  ws.onclose = () => {
-    document.getElementById('server-dot').className = 'dot';
-  };
+  ws.onmessage = (e) => { try { addStreamEvent(JSON.parse(e.data)); } catch {} };
+  ws.onclose = () => { document.getElementById('server-dot').className = 'dot'; };
 }
-
 function addStreamEvent(ev) {
   const box = document.getElementById('stream-box');
-
-  // Remove placeholder
   const empty = box.querySelector('.stream-empty');
   if (empty) empty.remove();
-
-  const actionNames = {
-    0:'Unknown', 1:'2-PT Shot', 2:'3-PT Shot', 3:'Free Throw',
-    4:'Rebound', 5:'Assist', 6:'Turnover', 7:'Foul',
-    8:'Substitution', 9:'Timeout', 10:'Jump Ball', 11:'Period', 127:'Other'
-  };
-
-  const action = actionNames[ev.action] || `#${ev.action}`;
-  const result = (ev.action === 1 || ev.action === 2 || ev.action === 3)
-    ? (ev.shot_made ? ' ✓' : ' ✗') : '';
-  const score  = (ev.score_home !== undefined) ? `  ${ev.score_home}–${ev.score_away}` : '';
-  const wp     = ev.win_prob !== undefined ? `  wp=${(ev.win_prob * 100).toFixed(0)}%` : '';
-
+  const names = {0:'Unknown',1:'2-PT Shot',2:'3-PT Shot',3:'Free Throw',4:'Rebound',5:'Assist',6:'Turnover',7:'Foul',8:'Sub',9:'Timeout',10:'Jump Ball',11:'Period',127:'Other'};
+  const action = names[ev.action] || `#${ev.action}`;
+  const result = (ev.action>=1&&ev.action<=3) ? (ev.shot_made?' ✓':' ✗') : '';
+  const score = ev.score_home!==undefined ? `  ${ev.score_home}–${ev.score_away}` : '';
+  const wp = ev.win_prob!==undefined ? `  wp=${(ev.win_prob*100).toFixed(0)}%` : '';
   const div = document.createElement('div');
   div.className = 'stream-event';
   div.innerHTML = `<span class="ts">${nowStr()}</span>${action}${result}${score}${wp}`;
-
   box.insertBefore(div, box.firstChild);
-
   streamEvents.push(div);
-  if (streamEvents.length > MAX_STREAM) {
-    const old = streamEvents.shift();
-    if (old.parentNode) old.parentNode.removeChild(old);
-  }
+  if (streamEvents.length > MAX_STREAM) { const old = streamEvents.shift(); if (old.parentNode) old.parentNode.removeChild(old); }
 }
 
-// ── DB stats via a simple count query ─────────────────────────────────────
-
-async function loadDbStats() {
-  // Use the /metrics endpoint — it reports events processed by stream processor
-  // For total events we use a known value from the ETL load
-  document.getElementById('chip-events').textContent = '3.7M';
-}
-
-// ── Refresh loop ───────────────────────────────────────────────────────────
-
-let refreshCount = 0;
-
+// ── Refresh ──
 async function refresh() {
-  refreshCount++;
-  document.getElementById('refresh-note').textContent =
-    `Last updated: ${nowStr()} · Auto-refreshes every 30s`;
-
+  document.getElementById('refresh-time').textContent = `Updated ${nowStr()}`;
   await checkHealth();
-  await Promise.all([
-    loadLeaderboard(),
-    loadGames(),
-    loadStreamStats(),
-    loadDbStats(),
-  ]);
+  await Promise.all([loadLeaderboard(), loadGames(), loadStreamStats(), loadDbStats()]);
 }
 
-// Initial load
-refresh();
-setInterval(refresh, 30_000);
+// ── Similarity index ──
+async function checkIndexStatus() {
+  try {
+    const r = await fetch(API + '/api/index/status'); if (!r.ok) return;
+    const d = await r.json();
+    const dot = document.getElementById('sim-index-dot');
+    const label = document.getElementById('sim-index-label');
+    const btn = document.getElementById('sim-btn');
+    if (d.loaded) {
+      dot.style.background='#4ade80'; dot.style.boxShadow='0 0 0 3px rgba(74,222,128,0.35)';
+      label.textContent = (d.size>=1e6?(d.size/1e6).toFixed(1)+'M':(d.size/1000).toFixed(0)+'K') + ' indexed';
+      btn.disabled = false;
+    } else { dot.style.background='#ffd700'; label.textContent='building…'; btn.disabled=true; setTimeout(checkIndexStatus,5000); }
+  } catch { document.getElementById('sim-index-label').textContent='unavailable'; document.getElementById('sim-btn').disabled=true; }
+}
+
+// ── Similarity search ──
+async function runSimilarity() {
+  const btn = document.getElementById('sim-btn');
+  const meta = document.getElementById('sim-meta');
+  const container = document.getElementById('sim-results');
+  const home = parseInt(document.getElementById('sim-home').value)||0;
+  const away = parseInt(document.getElementById('sim-away').value)||0;
+  const period = parseInt(document.getElementById('sim-period').value)||1;
+  const clock = parseInt(document.getElementById('sim-clock').value);
+  btn.disabled = true; btn.textContent = '⏳ Searching…'; meta.textContent = '';
+  container.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Scanning 3.7M events…</div>';
+  try {
+    const r = await fetch(`${API}/api/similar?score_home=${home}&score_away=${away}&period=${period}&clock=${clock}&k=10`);
+    if (!r.ok) { const err = await r.json().catch(()=>({error:'failed'})); container.innerHTML=`<div class="error-msg">${err.error||'Failed'}</div>`; return; }
+    const data = await r.json();
+    meta.textContent = `⚡ Scanned ${(data.index_size/1e6).toFixed(1)}M events in ${data.query_ms.toFixed(1)}ms`;
+    if (!data.results||!data.results.length) { container.innerHTML='<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">No results.</div>'; renderWinProb([]); return; }
+    renderWinProb(data.results);
+    container.innerHTML = data.results.map(m => {
+      const s = (m.similarity*100).toFixed(1);
+      const o = m.home_won ? `<span class="outcome-win">🏠 Home Won</span>` : `<span class="outcome-loss">✈️ Away Won</span>`;
+      return `<div class="sim-card"><div class="sim-card-header"><span class="sim-matchup">${m.away} @ ${m.home}</span><span class="sim-similarity">${s}%</span></div><div class="sim-score">${m.score_away} – ${m.score_home}</div><div class="sim-details"><span>Q${m.period} · ${m.date}</span>${o}</div></div>`;
+    }).join('');
+  } catch { container.innerHTML='<div class="error-msg">Search failed — server running?</div>'; }
+  finally { btn.disabled=false; btn.textContent='🔍 Find Similar'; }
+}
+
+// ── Populate sim from live stream ──
+const _orig = addStreamEvent;
+window.addStreamEvent = function(ev) { _orig(ev); if (ev.score_home!==undefined) { const h=document.getElementById('sim-home'),a=document.getElementById('sim-away'); if (h&&!h.dataset.userEdited) { h.value=ev.score_home; a.value=ev.score_away; } } };
+document.querySelectorAll('#sim-home,#sim-away,#sim-period,#sim-clock').forEach(el => { el.addEventListener('input',()=>{el.dataset.userEdited='1';}); });
+
+// ── Player search ──
+let playerSearchTimeout = null;
+const playerSearchInput = document.getElementById('player-search');
+const playerSearchResults = document.getElementById('player-search-results');
+
+playerSearchInput.addEventListener('input', () => {
+  clearTimeout(playerSearchTimeout);
+  const q = playerSearchInput.value.trim();
+  if (q.length < 2) { playerSearchResults.classList.remove('open'); return; }
+  playerSearchTimeout = setTimeout(async () => {
+    try {
+      const r = await fetch(API + '/api/players/search?q=' + encodeURIComponent(q));
+      if (!r.ok) return;
+      const data = await r.json();
+      const players = data.players || [];
+      if (players.length === 0) {
+        playerSearchResults.innerHTML = '<div class="search-result-item"><span class="sr-meta">No players found</span></div>';
+      } else {
+        playerSearchResults.innerHTML = players.map(p => {
+          const teamBadge = p.team ? `<span class="team-badge">${p.team}</span>` : '';
+          const posBadge = p.pos ? `<span class="pos-badge">${p.pos}</span>` : '';
+          return `<div class="search-result-item" data-pid="${p.player_id}">
+            <div class="sr-name">${p.name} ${teamBadge} ${posBadge}</div>
+            <div class="sr-stats">
+              <span><span class="sr-stat-val">${p.ppg}</span> PPG</span>
+              <span><span class="sr-stat-val">${p.rpg}</span> RPG</span>
+              <span><span class="sr-stat-val">${p.spg}</span> SPG</span>
+              <span><span class="sr-stat-val">${p.bpg}</span> BPG</span>
+              <span><span class="sr-stat-val">${p.fg_pct}%</span> FG</span>
+              <span>${p.games}G</span>
+            </div>
+          </div>`;
+        }).join('');
+      }
+      playerSearchResults.classList.add('open');
+    } catch {}
+  }, 300);
+});
+
+playerSearchInput.addEventListener('blur', () => {
+  setTimeout(() => playerSearchResults.classList.remove('open'), 200);
+});
+playerSearchInput.addEventListener('focus', () => {
+  if (playerSearchResults.innerHTML && playerSearchInput.value.trim().length >= 2)
+    playerSearchResults.classList.add('open');
+});
+
+// ── Game/team search ──
+let gameSearchTimeout = null;
+const gameSearchInput = document.getElementById('game-search');
+const gameSearchResults = document.getElementById('game-search-results');
+
+gameSearchInput.addEventListener('input', () => {
+  clearTimeout(gameSearchTimeout);
+  const q = gameSearchInput.value.trim().toUpperCase();
+  if (q.length < 2) { gameSearchResults.classList.remove('open'); return; }
+  gameSearchTimeout = setTimeout(async () => {
+    try {
+      const r = await fetch(API + '/api/games/search?team=' + encodeURIComponent(q));
+      if (!r.ok) return;
+      const data = await r.json();
+      const games = data.games || [];
+      if (games.length === 0) {
+        gameSearchResults.innerHTML = '<div class="search-result-item"><span class="sr-meta">No games found for ' + q + '</span></div>';
+      } else {
+        gameSearchResults.innerHTML = games.slice(0, 20).map(g => {
+          const homeWon = g.home_score > g.away_score;
+          const awayWon = g.away_score > g.home_score;
+          const typeBadge = g.season_type === 'Playoffs' ? ' <span style="color:var(--orange);font-size:10px;font-weight:700;">PLAYOFFS</span>' : '';
+          return `<div class="search-result-item">
+            <div class="sr-name">${g.away} @ ${g.home}${typeBadge}</div>
+            <div class="sr-meta">${g.date} &middot; <span class="${awayWon?'outcome-win':''}">${g.away_score}</span> – <span class="${homeWon?'outcome-win':''}">${g.home_score}</span></div>
+          </div>`;
+        }).join('');
+      }
+      gameSearchResults.classList.add('open');
+    } catch {}
+  }, 300);
+});
+
+gameSearchInput.addEventListener('blur', () => {
+  setTimeout(() => gameSearchResults.classList.remove('open'), 200);
+});
+gameSearchInput.addEventListener('focus', () => {
+  if (gameSearchResults.innerHTML && gameSearchInput.value.trim().length >= 2)
+    gameSearchResults.classList.add('open');
+});
+
+// ── Win probability from similarity results ──
+function renderWinProb(results) {
+  const container = document.getElementById('win-prob-container');
+  if (!results || results.length === 0) { container.innerHTML = ''; return; }
+  const homeWins = results.filter(r => r.home_won).length;
+  const total = results.length;
+  const homePct = Math.round((homeWins / total) * 100);
+  const awayPct = 100 - homePct;
+  container.innerHTML = `<div class="win-prob-banner">
+    <div>
+      <div class="wp-label">Home Win Prob</div>
+      <div class="wp-value" style="color:#4ade80">${homePct}%</div>
+    </div>
+    <div style="flex:1">
+      <div class="wp-bar-outer">
+        <div class="wp-bar-fill wp-home-fill" style="width:${homePct}%"></div>
+      </div>
+      <div class="wp-sides"><span>Home ${homePct}%</span><span>Away ${awayPct}%</span></div>
+    </div>
+    <div style="text-align:right">
+      <div class="wp-label">Away Win Prob</div>
+      <div class="wp-value" style="color:#f87171">${awayPct}%</div>
+    </div>
+  </div>`;
+}
+
+refresh(); checkIndexStatus(); setInterval(refresh, 30_000);
 </script>
 </body>
 </html>

@@ -7,6 +7,7 @@
    using PlatformPoller = cortex::serving::EpollPoller;
 #endif
 #include "serving/RedisCache.hpp"
+#include "analytics/GameStateIndex.hpp"
 #include "common/Logger.hpp"
 
 #include <llhttp.h>
@@ -15,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <chrono>
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
@@ -414,8 +416,8 @@ void Connection::process_http_request(const std::string& method,
         return;
     }
 
-    // ── /api/leaderboard — top players by PPG ───────────────────────────
-    if (method == "GET" && path == "/api/leaderboard") {
+    // ── /api/stats — total counts for dashboard chips ────────────────────
+    if (method == "GET" && path == "/api/stats") {
         if (!db_conn) {
             send_response(500, "application/json", R"({"error":"no db"})", false);
             return;
@@ -423,39 +425,104 @@ void Connection::process_http_request(const std::string& method,
         try {
             pqxx::work txn(*db_conn);
             auto r = txn.exec(
+                "SELECT "
+                "  (SELECT COUNT(*) FROM games)         AS total_games, "
+                "  (SELECT COUNT(*) FROM players)       AS total_players, "
+                "  (SELECT COUNT(*) FROM play_events)   AS total_events");
+            txn.commit();
+            std::ostringstream j;
+            j << "{"
+              << "\"total_games\":"   << r[0]["total_games"].as<int64_t>(0)   << ","
+              << "\"total_players\":" << r[0]["total_players"].as<int64_t>(0) << ","
+              << "\"total_events\":"  << r[0]["total_events"].as<int64_t>(0)
+              << "}";
+            send_response(200, "application/json", j.str(), false);
+        } catch (const std::exception& e) {
+            log->error("stats DB error: {}", e.what());
+            send_response(500, "application/json", R"({"error":"db error"})", false);
+        }
+        return;
+    }
+
+    // ── /api/leaderboard — top players by selected stat ────────────────
+    // ?stat=ppg (default) | rpg | spg | bpg | fg_pct | ft_pct
+    if (method == "GET" && (path == "/api/leaderboard" ||
+                            path.rfind("/api/leaderboard?", 0) == 0)) {
+        if (!db_conn) {
+            send_response(500, "application/json", R"({"error":"no db"})", false);
+            return;
+        }
+
+        // Parse ?stat= from query string
+        std::string stat = "ppg";  // default
+        auto qpos = path.find('?');
+        if (qpos != std::string::npos) {
+            std::string qs = path.substr(qpos + 1);
+            auto sp = qs.find("stat=");
+            if (sp != std::string::npos) {
+                sp += 5;
+                auto ep = qs.find('&', sp);
+                stat = (ep == std::string::npos) ? qs.substr(sp) : qs.substr(sp, ep - sp);
+            }
+        }
+
+        // Whitelist of allowed sort columns → SQL expression
+        std::string order_col = "ppg";
+        if      (stat == "rpg")    order_col = "rpg";
+        else if (stat == "spg")    order_col = "spg";
+        else if (stat == "bpg")    order_col = "bpg";
+        else if (stat == "fg_pct") order_col = "fg_pct";
+        else if (stat == "ft_pct") order_col = "ft_pct";
+        // ppg is the default, already set
+
+        try {
+            pqxx::work txn(*db_conn);
+            auto r = txn.exec(
                 "SELECT p.player_id, p.first_name || ' ' || p.last_name AS name, "
-                "       t.tricode AS team, "
+                "       t.tricode AS team, COALESCE(p.position, '') AS position, "
                 "       SUM(pgs.points) AS pts, "
-                "       COUNT(DISTINCT pgs.game_id) AS games, "
-                "       ROUND(SUM(pgs.points)::numeric / "
-                "             NULLIF(COUNT(DISTINCT pgs.game_id),0), 1) AS ppg, "
                 "       SUM(pgs.rebounds) AS reb, "
-                "       SUM(pgs.steals) AS stl "
+                "       SUM(pgs.steals) AS stl, "
+                "       SUM(pgs.blocks) AS blk, "
+                "       COUNT(DISTINCT pgs.game_id) AS games, "
+                "       ROUND(SUM(pgs.points)::numeric   / NULLIF(COUNT(DISTINCT pgs.game_id),0), 1) AS ppg, "
+                "       ROUND(SUM(pgs.rebounds)::numeric  / NULLIF(COUNT(DISTINCT pgs.game_id),0), 1) AS rpg, "
+                "       ROUND(SUM(pgs.steals)::numeric    / NULLIF(COUNT(DISTINCT pgs.game_id),0), 1) AS spg, "
+                "       ROUND(SUM(pgs.blocks)::numeric    / NULLIF(COUNT(DISTINCT pgs.game_id),0), 1) AS bpg, "
+                "       ROUND(SUM(pgs.fgm)::numeric * 100 / NULLIF(SUM(pgs.fga),0), 1) AS fg_pct, "
+                "       ROUND(SUM(pgs.ftm)::numeric * 100 / NULLIF(SUM(pgs.fta),0), 1) AS ft_pct "
                 "FROM player_game_stats pgs "
                 "JOIN players p ON p.player_id = pgs.player_id "
                 "JOIN teams t   ON t.team_id = p.team_id "
-                "GROUP BY p.player_id, name, t.tricode "
+                "GROUP BY p.player_id, name, t.tricode, p.position "
                 "HAVING COUNT(DISTINCT pgs.game_id) >= 30 "
-                "ORDER BY ppg DESC LIMIT 20");
+                "ORDER BY " + order_col + " DESC NULLS LAST LIMIT 50");
             txn.commit();
 
             std::ostringstream j;
-            j << "[";
+            j << "{\"stat\":" << json_str(stat) << ",\"players\":[";
             for (pqxx::result::size_type i = 0; i < r.size(); ++i) {
                 if (i > 0) j << ",";
                 j << "{"
-                  << "\"rank\":" << (i+1) << ","
+                  << "\"rank\":"      << (i+1) << ","
                   << "\"player_id\":" << r[i]["player_id"].as<int>() << ","
-                  << "\"name\":"  << json_str(r[i]["name"].as<std::string>()) << ","
-                  << "\"team\":"  << json_str(r[i]["team"].as<std::string>()) << ","
-                  << "\"ppg\":"   << r[i]["ppg"].as<double>(0.0) << ","
-                  << "\"pts\":"   << r[i]["pts"].as<int>(0) << ","
-                  << "\"reb\":"   << r[i]["reb"].as<int>(0) << ","
-                  << "\"stl\":"   << r[i]["stl"].as<int>(0) << ","
-                  << "\"games\":" << r[i]["games"].as<int>(0)
+                  << "\"name\":"      << json_str(r[i]["name"].as<std::string>()) << ","
+                  << "\"team\":"      << json_str(r[i]["team"].as<std::string>()) << ","
+                  << "\"pos\":"       << json_str(r[i]["position"].as<std::string>("")) << ","
+                  << "\"games\":"     << r[i]["games"].as<int>(0) << ","
+                  << "\"pts\":"       << r[i]["pts"].as<int>(0) << ","
+                  << "\"reb\":"       << r[i]["reb"].as<int>(0) << ","
+                  << "\"stl\":"       << r[i]["stl"].as<int>(0) << ","
+                  << "\"blk\":"       << r[i]["blk"].as<int>(0) << ","
+                  << "\"ppg\":"       << r[i]["ppg"].as<double>(0.0) << ","
+                  << "\"rpg\":"       << r[i]["rpg"].as<double>(0.0) << ","
+                  << "\"spg\":"       << r[i]["spg"].as<double>(0.0) << ","
+                  << "\"bpg\":"       << r[i]["bpg"].as<double>(0.0) << ","
+                  << "\"fg_pct\":"    << r[i]["fg_pct"].as<double>(0.0) << ","
+                  << "\"ft_pct\":"    << r[i]["ft_pct"].as<double>(0.0)
                   << "}";
             }
-            j << "]";
+            j << "]}";
             send_response(200, "application/json", j.str(), false);
         } catch (const std::exception& e) {
             log->error("leaderboard DB error: {}", e.what());
@@ -464,22 +531,382 @@ void Connection::process_http_request(const std::string& method,
         return;
     }
 
+    // ── /api/players/search?q= — search players by name ────────────────
+    {
+        auto qpos = path.find('?');
+        std::string path_only = (qpos != std::string::npos) ? path.substr(0, qpos) : path;
+
+        if (method == "GET" && path_only == "/api/players/search") {
+            if (!db_conn) {
+                send_response(500, "application/json", R"({"error":"no db"})", false);
+                return;
+            }
+
+            std::string query;
+            if (qpos != std::string::npos) {
+                std::string qs = path.substr(qpos + 1);
+                auto sp = qs.find("q=");
+                if (sp != std::string::npos) {
+                    sp += 2;
+                    auto ep = qs.find('&', sp);
+                    query = (ep == std::string::npos) ? qs.substr(sp) : qs.substr(sp, ep - sp);
+                    // URL-decode %20 → space (minimal decode for names)
+                    std::string decoded;
+                    for (size_t i = 0; i < query.size(); ++i) {
+                        if (query[i] == '+') decoded += ' ';
+                        else if (query[i] == '%' && i + 2 < query.size()) {
+                            int val = 0;
+                            try { val = std::stoi(query.substr(i+1, 2), nullptr, 16); } catch (...) {}
+                            decoded += static_cast<char>(val);
+                            i += 2;
+                        } else decoded += query[i];
+                    }
+                    query = decoded;
+                }
+            }
+
+            if (query.empty() || query.size() < 2) {
+                send_response(400, "application/json",
+                    R"({"error":"query 'q' must be at least 2 characters"})", false);
+                return;
+            }
+
+            try {
+                pqxx::work txn(*db_conn);
+                auto r = txn.exec(
+                    "SELECT p.player_id, p.first_name || ' ' || p.last_name AS name, "
+                    "       t.tricode AS team, COALESCE(p.position, '') AS position, "
+                    "       COALESCE(SUM(pgs.points), 0) AS pts, "
+                    "       COALESCE(SUM(pgs.rebounds), 0) AS reb, "
+                    "       COALESCE(SUM(pgs.steals), 0) AS stl, "
+                    "       COALESCE(SUM(pgs.blocks), 0) AS blk, "
+                    "       COUNT(DISTINCT pgs.game_id) AS games, "
+                    "       ROUND(COALESCE(SUM(pgs.points), 0)::numeric / NULLIF(COUNT(DISTINCT pgs.game_id),0), 1) AS ppg, "
+                    "       ROUND(COALESCE(SUM(pgs.rebounds), 0)::numeric / NULLIF(COUNT(DISTINCT pgs.game_id),0), 1) AS rpg, "
+                    "       ROUND(COALESCE(SUM(pgs.steals), 0)::numeric / NULLIF(COUNT(DISTINCT pgs.game_id),0), 1) AS spg, "
+                    "       ROUND(COALESCE(SUM(pgs.blocks), 0)::numeric / NULLIF(COUNT(DISTINCT pgs.game_id),0), 1) AS bpg, "
+                    "       ROUND(COALESCE(SUM(pgs.fgm), 0)::numeric * 100 / NULLIF(COALESCE(SUM(pgs.fga), 0),0), 1) AS fg_pct, "
+                    "       ROUND(COALESCE(SUM(pgs.ftm), 0)::numeric * 100 / NULLIF(COALESCE(SUM(pgs.fta), 0),0), 1) AS ft_pct "
+                    "FROM players p "
+                    "LEFT JOIN teams t ON t.team_id = p.team_id "
+                    "LEFT JOIN player_game_stats pgs ON pgs.player_id = p.player_id "
+                    "WHERE (p.first_name || ' ' || p.last_name) ILIKE '%' || $1 || '%' "
+                    "GROUP BY p.player_id, name, t.tricode, p.position "
+                    "ORDER BY COALESCE(SUM(pgs.points), 0) DESC "
+                    "LIMIT 25",
+                    pqxx::params{query});
+                txn.commit();
+
+                std::ostringstream j;
+                j << "{\"query\":" << json_str(query) << ",\"players\":[";
+                for (pqxx::result::size_type i = 0; i < r.size(); ++i) {
+                    if (i > 0) j << ",";
+                    j << "{"
+                      << "\"player_id\":" << r[i]["player_id"].as<int>() << ","
+                      << "\"name\":"      << json_str(r[i]["name"].as<std::string>()) << ","
+                      << "\"team\":"      << json_str(r[i]["team"].as<std::string>("")) << ","
+                      << "\"pos\":"       << json_str(r[i]["position"].as<std::string>("")) << ","
+                      << "\"games\":"     << r[i]["games"].as<int>(0) << ","
+                      << "\"pts\":"       << r[i]["pts"].as<int>(0) << ","
+                      << "\"reb\":"       << r[i]["reb"].as<int>(0) << ","
+                      << "\"stl\":"       << r[i]["stl"].as<int>(0) << ","
+                      << "\"blk\":"       << r[i]["blk"].as<int>(0) << ","
+                      << "\"ppg\":"       << r[i]["ppg"].as<double>(0.0) << ","
+                      << "\"rpg\":"       << r[i]["rpg"].as<double>(0.0) << ","
+                      << "\"spg\":"       << r[i]["spg"].as<double>(0.0) << ","
+                      << "\"bpg\":"       << r[i]["bpg"].as<double>(0.0) << ","
+                      << "\"fg_pct\":"    << r[i]["fg_pct"].as<double>(0.0) << ","
+                      << "\"ft_pct\":"    << r[i]["ft_pct"].as<double>(0.0)
+                      << "}";
+                }
+                j << "]}";
+                send_response(200, "application/json", j.str(), false);
+            } catch (const std::exception& e) {
+                log->error("player search DB error: {}", e.what());
+                send_response(500, "application/json", R"({"error":"db error"})", false);
+            }
+            return;
+        }
+    }
+
+    // ── /api/games/search?team= — search games by team tricode ──────────
+    {
+        auto qpos = path.find('?');
+        std::string path_only = (qpos != std::string::npos) ? path.substr(0, qpos) : path;
+
+        if (method == "GET" && path_only == "/api/games/search") {
+            if (!db_conn) {
+                send_response(500, "application/json", R"({"error":"no db"})", false);
+                return;
+            }
+
+            std::string team;
+            if (qpos != std::string::npos) {
+                std::string qs = path.substr(qpos + 1);
+                auto sp = qs.find("team=");
+                if (sp != std::string::npos) {
+                    sp += 5;
+                    auto ep = qs.find('&', sp);
+                    team = (ep == std::string::npos) ? qs.substr(sp) : qs.substr(sp, ep - sp);
+                }
+            }
+
+            if (team.empty()) {
+                send_response(400, "application/json",
+                    R"json({"error":"query 'team' required (e.g. BOS, LAL)"})json", false);
+                return;
+            }
+
+            // Uppercase the tricode
+            std::transform(team.begin(), team.end(), team.begin(), ::toupper);
+
+            try {
+                pqxx::work txn(*db_conn);
+                auto r = txn.exec(
+                    "SELECT g.game_id, g.game_date::text, g.home_score, g.away_score, "
+                    "       g.status, g.season_type, "
+                    "       ht.tricode AS home, at.tricode AS away, "
+                    "       ht.full_name AS home_name, at.full_name AS away_name "
+                    "FROM games g "
+                    "JOIN teams ht ON ht.team_id = g.home_team_id "
+                    "JOIN teams at ON at.team_id = g.away_team_id "
+                    "WHERE ht.tricode = $1 OR at.tricode = $1 "
+                    "ORDER BY g.game_date DESC, g.game_id DESC LIMIT 50",
+                    pqxx::params{team});
+                txn.commit();
+
+                std::ostringstream j;
+                j << "{\"team\":" << json_str(team) << ",\"games\":[";
+                for (pqxx::result::size_type i = 0; i < r.size(); ++i) {
+                    if (i > 0) j << ",";
+                    j << "{"
+                      << "\"game_id\":"     << json_str(r[i]["game_id"].as<std::string>()) << ","
+                      << "\"date\":"        << json_str(r[i]["game_date"].as<std::string>()) << ","
+                      << "\"home\":"        << json_str(r[i]["home"].as<std::string>()) << ","
+                      << "\"away\":"        << json_str(r[i]["away"].as<std::string>()) << ","
+                      << "\"home_name\":"   << json_str(r[i]["home_name"].as<std::string>()) << ","
+                      << "\"away_name\":"   << json_str(r[i]["away_name"].as<std::string>()) << ","
+                      << "\"home_score\":"  << r[i]["home_score"].as<int>(0) << ","
+                      << "\"away_score\":"  << r[i]["away_score"].as<int>(0) << ","
+                      << "\"status\":"      << r[i]["status"].as<int>(1) << ","
+                      << "\"season_type\":" << json_str(r[i]["season_type"].as<std::string>())
+                      << "}";
+                }
+                j << "]}";
+                send_response(200, "application/json", j.str(), false);
+            } catch (const std::exception& e) {
+                log->error("games search DB error: {}", e.what());
+                send_response(500, "application/json", R"({"error":"db error"})", false);
+            }
+            return;
+        }
+    }
+
+    // ── /api/events/search — search play events ─────────────────────────
+    // ?player_id=203999&action_type=3pt&limit=50
+    {
+        auto qpos = path.find('?');
+        std::string path_only = (qpos != std::string::npos) ? path.substr(0, qpos) : path;
+
+        if (method == "GET" && path_only == "/api/events/search") {
+            if (!db_conn) {
+                send_response(500, "application/json", R"({"error":"no db"})", false);
+                return;
+            }
+
+            std::string qs = (qpos != std::string::npos) ? path.substr(qpos + 1) : "";
+            auto parse_param = [&](const std::string& key) -> std::string {
+                const std::string needle = key + "=";
+                auto pos = qs.find(needle);
+                while (pos != std::string::npos) {
+                    if (pos == 0 || qs[pos - 1] == '&') break;
+                    pos = qs.find(needle, pos + 1);
+                }
+                if (pos == std::string::npos) return "";
+                pos += key.size() + 1;
+                auto end = qs.find('&', pos);
+                return (end == std::string::npos) ? qs.substr(pos) : qs.substr(pos, end - pos);
+            };
+
+            std::string pid_str    = parse_param("player_id");
+            std::string action     = parse_param("action_type");
+            std::string game_id    = parse_param("game_id");
+            std::string limit_str  = parse_param("limit");
+
+            int limit_n = 50;
+            if (!limit_str.empty()) {
+                try { limit_n = std::max(1, std::min(std::stoi(limit_str), 200)); } catch (...) {}
+            }
+
+            if (pid_str.empty() && action.empty() && game_id.empty()) {
+                send_response(400, "application/json",
+                    R"({"error":"provide at least one of: player_id, action_type, game_id"})", false);
+                return;
+            }
+
+            // Build parameterized query dynamically
+            std::string sql =
+                "SELECT pe.event_id, pe.game_id, pe.action_number, "
+                "       pe.occurred_at::text, pe.period, pe.clock, "
+                "       pe.action_type, pe.sub_type, pe.description, "
+                "       pe.player_id, pe.team_id, pe.score_home, pe.score_away, "
+                "       p.first_name || ' ' || p.last_name AS player_name "
+                "FROM play_events pe "
+                "LEFT JOIN players p ON p.player_id = pe.player_id "
+                "WHERE 1=1 ";
+
+            // We build conditions and use string params to keep it safe
+            // pqxx positional params: $1, $2, etc.
+            std::vector<std::string> conditions;
+
+            // Whitelist action_type values
+            static const std::vector<std::string> valid_actions = {
+                "2pt", "3pt", "freethrow", "rebound", "steal", "block",
+                "turnover", "foul", "substitution", "timeout", "jumpball",
+                "period", "violation", "ejection"
+            };
+
+            int pid_val = 0;
+            if (!pid_str.empty()) {
+                try { pid_val = std::stoi(pid_str); } catch (...) {}
+            }
+
+            try {
+                pqxx::work txn(*db_conn);
+                pqxx::result r;
+
+                if (!pid_str.empty() && !action.empty() && !game_id.empty()) {
+                    bool valid = std::find(valid_actions.begin(), valid_actions.end(), action) != valid_actions.end();
+                    if (!valid) { send_response(400, "application/json", R"({"error":"invalid action_type"})", false); return; }
+                    r = txn.exec(
+                        sql + "AND pe.player_id = $1 AND pe.action_type = $2 AND pe.game_id = $3 "
+                        "ORDER BY pe.occurred_at DESC LIMIT $4",
+                        pqxx::params{pid_val, action, game_id, limit_n});
+                } else if (!pid_str.empty() && !action.empty()) {
+                    bool valid = std::find(valid_actions.begin(), valid_actions.end(), action) != valid_actions.end();
+                    if (!valid) { send_response(400, "application/json", R"({"error":"invalid action_type"})", false); return; }
+                    r = txn.exec(
+                        sql + "AND pe.player_id = $1 AND pe.action_type = $2 "
+                        "ORDER BY pe.occurred_at DESC LIMIT $3",
+                        pqxx::params{pid_val, action, limit_n});
+                } else if (!pid_str.empty() && !game_id.empty()) {
+                    r = txn.exec(
+                        sql + "AND pe.player_id = $1 AND pe.game_id = $2 "
+                        "ORDER BY pe.action_number ASC LIMIT $3",
+                        pqxx::params{pid_val, game_id, limit_n});
+                } else if (!game_id.empty() && !action.empty()) {
+                    bool valid = std::find(valid_actions.begin(), valid_actions.end(), action) != valid_actions.end();
+                    if (!valid) { send_response(400, "application/json", R"({"error":"invalid action_type"})", false); return; }
+                    r = txn.exec(
+                        sql + "AND pe.game_id = $1 AND pe.action_type = $2 "
+                        "ORDER BY pe.action_number ASC LIMIT $3",
+                        pqxx::params{game_id, action, limit_n});
+                } else if (!pid_str.empty()) {
+                    r = txn.exec(
+                        sql + "AND pe.player_id = $1 ORDER BY pe.occurred_at DESC LIMIT $2",
+                        pqxx::params{pid_val, limit_n});
+                } else if (!game_id.empty()) {
+                    r = txn.exec(
+                        sql + "AND pe.game_id = $1 ORDER BY pe.action_number ASC LIMIT $2",
+                        pqxx::params{game_id, limit_n});
+                } else if (!action.empty()) {
+                    bool valid = std::find(valid_actions.begin(), valid_actions.end(), action) != valid_actions.end();
+                    if (!valid) { send_response(400, "application/json", R"({"error":"invalid action_type"})", false); return; }
+                    r = txn.exec(
+                        sql + "AND pe.action_type = $1 ORDER BY pe.occurred_at DESC LIMIT $2",
+                        pqxx::params{action, limit_n});
+                }
+                txn.commit();
+
+                std::ostringstream j;
+                j << "{\"count\":" << r.size() << ",\"events\":[";
+                for (pqxx::result::size_type i = 0; i < r.size(); ++i) {
+                    if (i > 0) j << ",";
+                    j << "{"
+                      << "\"event_id\":"   << r[i]["event_id"].as<int64_t>() << ","
+                      << "\"game_id\":"    << json_str(r[i]["game_id"].as<std::string>()) << ","
+                      << "\"action_num\":" << r[i]["action_number"].as<int>() << ","
+                      << "\"time\":"       << json_str(r[i]["occurred_at"].as<std::string>()) << ","
+                      << "\"period\":"     << r[i]["period"].as<int>() << ","
+                      << "\"clock\":"      << json_str(r[i]["clock"].as<std::string>("")) << ","
+                      << "\"action\":"     << json_str(r[i]["action_type"].as<std::string>()) << ","
+                      << "\"sub_type\":"   << json_str(r[i]["sub_type"].as<std::string>("")) << ","
+                      << "\"desc\":"       << json_str(r[i]["description"].as<std::string>("")) << ","
+                      << "\"player_id\":" ;
+                    if (r[i]["player_id"].is_null()) j << "null"; else j << r[i]["player_id"].as<int>();
+                    j << ",\"player_name\":" << json_str(r[i]["player_name"].as<std::string>("")) << ","
+                      << "\"score_home\":" << r[i]["score_home"].as<int>(0) << ","
+                      << "\"score_away\":" << r[i]["score_away"].as<int>(0)
+                      << "}";
+                }
+                j << "]}";
+                send_response(200, "application/json", j.str(), false);
+            } catch (const std::exception& e) {
+                log->error("events search DB error: {}", e.what());
+                send_response(500, "application/json", R"({"error":"db error"})", false);
+            }
+            return;
+        }
+    }
+
     // ── /api/games/recent — last 20 completed games ──────────────────────
-    if (method == "GET" && path == "/api/games/recent") {
+    // ?type=regular|playoffs (default: all)
+    {
+        auto qpos = path.find('?');
+        std::string path_only = (qpos != std::string::npos) ? path.substr(0, qpos) : path;
+
+        if (method == "GET" && path_only == "/api/games/recent") {
         if (!db_conn) {
             send_response(500, "application/json", R"({"error":"no db"})", false);
             return;
         }
+
+        // Parse ?type= filter
+        std::string type_filter;
+        if (qpos != std::string::npos) {
+            std::string qs = path.substr(qpos + 1);
+            auto sp = qs.find("type=");
+            if (sp != std::string::npos) {
+                sp += 5;
+                auto ep = qs.find('&', sp);
+                type_filter = (ep == std::string::npos) ? qs.substr(sp) : qs.substr(sp, ep - sp);
+            }
+        }
+
         try {
             pqxx::work txn(*db_conn);
-            auto r = txn.exec(
-                "SELECT g.game_id, g.game_date::text, g.home_score, g.away_score, g.status, "
-                "       ht.tricode AS home, at.tricode AS away, "
-                "       ht.full_name AS home_name, at.full_name AS away_name "
-                "FROM games g "
-                "JOIN teams ht ON ht.team_id = g.home_team_id "
-                "JOIN teams at ON at.team_id = g.away_team_id "
-                "ORDER BY g.game_date DESC, g.game_id DESC LIMIT 20");
+            pqxx::result r;
+
+            if (type_filter == "regular") {
+                r = txn.exec(
+                    "SELECT g.game_id, g.game_date::text, g.home_score, g.away_score, g.status, "
+                    "       ht.tricode AS home, at.tricode AS away, "
+                    "       ht.full_name AS home_name, at.full_name AS away_name "
+                    "FROM games g "
+                    "JOIN teams ht ON ht.team_id = g.home_team_id "
+                    "JOIN teams at ON at.team_id = g.away_team_id "
+                    "WHERE g.season_type = 'Regular Season' "
+                    "ORDER BY g.game_date DESC, g.game_id DESC LIMIT 20");
+            } else if (type_filter == "playoffs") {
+                r = txn.exec(
+                    "SELECT g.game_id, g.game_date::text, g.home_score, g.away_score, g.status, "
+                    "       ht.tricode AS home, at.tricode AS away, "
+                    "       ht.full_name AS home_name, at.full_name AS away_name "
+                    "FROM games g "
+                    "JOIN teams ht ON ht.team_id = g.home_team_id "
+                    "JOIN teams at ON at.team_id = g.away_team_id "
+                    "WHERE g.season_type = 'Playoffs' "
+                    "ORDER BY g.game_date DESC, g.game_id DESC LIMIT 20");
+            } else {
+                r = txn.exec(
+                    "SELECT g.game_id, g.game_date::text, g.home_score, g.away_score, g.status, "
+                    "       ht.tricode AS home, at.tricode AS away, "
+                    "       ht.full_name AS home_name, at.full_name AS away_name "
+                    "FROM games g "
+                    "JOIN teams ht ON ht.team_id = g.home_team_id "
+                    "JOIN teams at ON at.team_id = g.away_team_id "
+                    "ORDER BY g.game_date DESC, g.game_id DESC LIMIT 20");
+            }
             txn.commit();
 
             std::ostringstream j;
@@ -505,6 +932,7 @@ void Connection::process_http_request(const std::string& method,
             send_response(500, "application/json", R"({"error":"db error"})", false);
         }
         return;
+        }
     }
 
     // ── /live/{gameId} — WebSocket upgrade ───────────────────────────────
@@ -526,6 +954,123 @@ void Connection::process_http_request(const std::string& method,
         }
         upgrade_to_websocket(ws_key, game_id);
         return;
+    }
+
+    // ── /api/index/status — similarity index readiness ───────────────────
+    if (method == "GET" && path == "/api/index/status") {
+        std::ostringstream j;
+        if (game_state_index && game_state_index->loaded()) {
+            j << "{\"loaded\":true"
+              << ",\"size\":"      << game_state_index->size()
+              << ",\"build_ms\":"  << static_cast<long long>(game_state_index->build_ms())
+              << "}";
+        } else {
+            j << "{\"loaded\":false,\"size\":0,\"build_ms\":0}";
+        }
+        send_response(200, "application/json", j.str(), false);
+        return;
+    }
+
+    // ── /api/similar — SIMD nearest-neighbor game state search ──────────
+    // Query params: score_home, score_away, period, clock (secs remaining),
+    //               momentum (optional, default 0), k (optional, default 10)
+    {
+        auto qpos = path.find('?');
+        std::string path_only = (qpos != std::string::npos) ? path.substr(0, qpos) : path;
+
+        if (method == "GET" && path_only == "/api/similar") {
+            if (!game_state_index || !game_state_index->loaded()) {
+                send_response(503, "application/json",
+                    R"({"error":"similarity index not ready yet — building in background"})",
+                    false);
+                return;
+            }
+
+            // Parse query parameters
+            auto parse_int_param = [&](const std::string& qs, const std::string& key,
+                                       int fallback) -> int {
+                const std::string needle = key + "=";
+                auto pos = qs.find(needle);
+                // Require match at start of string or after '&' to avoid substring collisions
+                // e.g. "k=" must not match the "k=" inside "clock=180"
+                while (pos != std::string::npos) {
+                    if (pos == 0 || qs[pos - 1] == '&') break;
+                    pos = qs.find(needle, pos + 1);
+                }
+                if (pos == std::string::npos) return fallback;
+                pos += key.size() + 1;
+                auto end = qs.find('&', pos);
+                std::string val = (end == std::string::npos)
+                    ? qs.substr(pos)
+                    : qs.substr(pos, end - pos);
+                try { return std::stoi(val); } catch (...) { return fallback; }
+            };
+
+            const std::string qs = (qpos != std::string::npos) ? path.substr(qpos + 1) : "";
+
+            const int score_home = parse_int_param(qs, "score_home", 50);
+            const int score_away = parse_int_param(qs, "score_away", 50);
+            const int period     = parse_int_param(qs, "period",     2);
+            const int clock      = parse_int_param(qs, "clock",      360);
+            const int momentum   = parse_int_param(qs, "momentum",   0);
+            const int k          = std::max(1, std::min(parse_int_param(qs, "k", 10), 25));
+
+            const auto t0 = std::chrono::steady_clock::now();
+
+            auto qvec    = cortex::analytics::encode_game_state(
+                               score_home, score_away, period, clock, momentum);
+            auto matches = game_state_index->query(qvec, k);
+
+            const auto t1      = std::chrono::steady_clock::now();
+            const double qms   = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+            std::ostringstream j;
+            j << "{"
+              << "\"query\":{"
+              << "\"score_home\":"  << score_home << ","
+              << "\"score_away\":"  << score_away << ","
+              << "\"period\":"      << period     << ","
+              << "\"clock\":"       << clock      << ","
+              << "\"momentum\":"    << momentum
+              << "},"
+              << "\"query_ms\":"    << std::fixed;
+            j.precision(2);
+            j << qms << ","
+              << "\"index_size\":"  << game_state_index->size() << ","
+              << "\"results\":[";
+
+            for (size_t ri = 0; ri < matches.size(); ++ri) {
+                const auto& m = matches[ri];
+                if (ri > 0) j << ",";
+                j << "{"
+                  << "\"rank\":"       << (ri + 1)          << ","
+                  << "\"event_id\":"   << m.event_id        << ","
+                  << "\"game_id\":"    << json_str(m.game_id) << ","
+                  << "\"home\":"       << json_str(m.home_tricode) << ","
+                  << "\"away\":"       << json_str(m.away_tricode) << ","
+                  << "\"date\":"       << json_str(m.date)   << ","
+                  << "\"score_home\":" << m.score_home       << ","
+                  << "\"score_away\":" << m.score_away       << ","
+                  << "\"period\":"     << static_cast<int>(m.period) << ","
+                  << "\"home_won\":"   << (m.home_won ? "true" : "false") << ","
+                  << "\"similarity\":" << std::fixed;
+                j.precision(4);
+                j << m.similarity
+                  << "}";
+            }
+            j << "]}";
+
+            // Cache similar-moments results for 5 minutes (they rarely change mid-game)
+            if (cache) {
+                const std::string ckey = "cortex:similar:" + std::to_string(score_home)
+                    + ":" + std::to_string(score_away) + ":" + std::to_string(period)
+                    + ":" + std::to_string(clock);
+                cache->set(ckey, j.str(), std::chrono::seconds{300});
+            }
+
+            send_response(200, "application/json", j.str(), false);
+            return;
+        }
     }
 
     // ── / and /static/* — serve dashboard files ─────────────────────────
@@ -770,10 +1315,11 @@ void HttpServer::accept_connection() {
         set_tcp_nodelay(cfd);
 
         auto conn = std::make_unique<Connection>(cfd, *poller_);
-        conn->accumulator = &accumulator_;
-        conn->db_conn     = db_.get();
-        conn->cache       = cache_.get();
-        conn->www_root    = cfg_.www_root;
+        conn->accumulator       = &accumulator_;
+        conn->db_conn           = db_.get();
+        conn->cache             = cache_.get();
+        conn->www_root          = cfg_.www_root;
+        conn->game_state_index  = cfg_.game_state_index;
 
         Connection* raw = conn.get();
 

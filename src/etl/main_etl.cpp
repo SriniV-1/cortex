@@ -1,9 +1,10 @@
 // CORTEX ETL — Historical NBA data loader
-// Usage: cortex_etl --season 2023 [--threads 8] [--dry-run]
+// Usage: cortex_etl --season 2023 [--playoffs] [--threads 8] [--dry-run]
 //        cortex_etl --populate-dimensions [--threads 8]   ← backfill games/teams/players
 
 #include "etl/NBAClient.hpp"
 #include "etl/BulkInserter.hpp"
+// HttpNotFoundError is defined in NBAClient.hpp
 #include "common/Logger.hpp"
 
 #include <pqxx/pqxx>
@@ -41,21 +42,41 @@ static void run_season_load(
         int season,
         int num_threads,
         bool dry_run,
-        std::shared_ptr<spdlog::logger> log)
+        std::shared_ptr<spdlog::logger> log,
+        int season_type = 2)   // 2=regular, 4=playoffs
 {
-    auto game_ids = cortex::etl::NBAClient::game_ids_for_season(season, 1230);
-    log->info("Generated {} candidate game IDs for season {}", game_ids.size(), season);
+    int id_count = (season_type == 4) ? 400 : 1230;
+    auto game_ids = cortex::etl::NBAClient::game_ids_for_season(season, id_count, season_type);
+    log->info("Generated {} candidate {} game IDs for season {}",
+              game_ids.size(),
+              (season_type == 4) ? "playoff" : "regular-season",
+              season);
 
     std::mutex queue_mu;
     size_t next_idx = 0;
     std::atomic<int64_t> total_events{0};
     std::atomic<int>     total_games{0};
+    std::atomic<int>     already_loaded{0};
+
+    // Track skipped games by category for end-of-run summary.
+    // 403/404 = not in S3 feed (expected for COVID gaps, end-of-season padding).
+    // malformed = bad JSON from NBA — worth calling out individually.
+    std::mutex skipped_mu;
+    std::atomic<int> not_in_feed{0};
+    std::vector<std::string> malformed_games;
+
+    // Early-termination: if this many consecutive game IDs are missing from the
+    // S3 feed (and we've already loaded at least one game), the season data is
+    // exhausted. Stop probing rather than burning time on dead IDs.
+    static constexpr int kMaxConsecutiveMiss = 30;
+    std::atomic<int> consecutive_miss{0};
+    std::atomic<bool> stop_early{false};
 
     auto worker = [&](int thread_id) {
         cortex::etl::NBAClient   client(150);
         cortex::etl::BulkInserter inserter(conn_str);
 
-        while (true) {
+        while (!stop_early.load(std::memory_order_relaxed)) {
             std::string game_id;
             {
                 std::lock_guard lock(queue_mu);
@@ -63,9 +84,12 @@ static void run_season_load(
                 game_id = game_ids[next_idx++];
             }
 
-            // Skip events already loaded, but still attempt dimension upsert
-            // in case the previous run predated dimension support.
-            bool events_already_loaded = !dry_run && inserter.is_game_loaded(game_id);
+            // If events are already in DB, skip all HTTP fetches entirely.
+            if (!dry_run && inserter.is_game_loaded(game_id)) {
+                ++already_loaded;
+                consecutive_miss.store(0, std::memory_order_relaxed);
+                continue;
+            }
 
             // ── Step 1: boxscore → dimension tables ──────────────────────
             auto bs = client.fetch_boxscore(game_id);
@@ -81,11 +105,29 @@ static void run_season_load(
                 inserter.upsert_players(all_players);
             }
 
-            if (events_already_loaded) continue;
-
             // ── Step 2: play-by-play → play_events ──────────────────────
             auto pbp = client.fetch_play_by_play(game_id);
-            if (!pbp) continue;
+            if (!pbp) {
+                if (bs) {
+                    // Had a boxscore but no play-by-play → malformed JSON
+                    std::lock_guard lock(skipped_mu);
+                    malformed_games.push_back(game_id);
+                    consecutive_miss.store(0, std::memory_order_relaxed);
+                } else {
+                    // No boxscore either → game simply not in S3 feed (403/404)
+                    ++not_in_feed;
+                    // Stop early if we've hit a long run of missing IDs and
+                    // have already found at least some games this season.
+                    int miss = consecutive_miss.fetch_add(1, std::memory_order_relaxed) + 1;
+                    if (miss >= kMaxConsecutiveMiss &&
+                        (total_games.load() > 0 || already_loaded.load() > 0)) {
+                        stop_early.store(true, std::memory_order_relaxed);
+                    }
+                }
+                continue;
+            }
+
+            consecutive_miss.store(0, std::memory_order_relaxed);
 
             if (dry_run) {
                 log->info("[dry-run] Would insert {} actions for {}",
@@ -114,9 +156,31 @@ static void run_season_load(
 
     auto elapsed = std::chrono::steady_clock::now() - start;
     double secs  = std::chrono::duration<double>(elapsed).count();
-    log->info("Season load complete in {:.1f}s — {} games, {} events ({:.0f} ev/sec)",
-              secs, total_games.load(), total_events.load(),
-              total_events.load() / std::max(secs, 1.0));
+    const int al = already_loaded.load();
+    if (al > 0 && total_games == 0)
+        log->info("Season {} already fully loaded ({} games in DB — skipping inserts)",
+                  season, al);
+    else
+        log->info("Season load complete in {:.1f}s — {} new games, {} events ({:.0f} ev/sec)  "
+                  "[{} already in DB]",
+                  secs, total_games.load(), total_events.load(),
+                  total_events.load() / std::max(secs, 1.0), al);
+
+    // ── Skipped games summary ────────────────────────────────────────────
+    if (stop_early.load())
+        log->info("  Early termination: stopped after {} consecutive missing IDs "
+                  "(season data exhausted)", kMaxConsecutiveMiss);
+    if (not_in_feed > 0)
+        log->info("  {} game IDs not in S3 feed (403/404)", not_in_feed.load());
+
+    if (!malformed_games.empty()) {
+        std::sort(malformed_games.begin(), malformed_games.end());
+        log->warn("─── {} game(s) with malformed play-by-play JSON for season {} ───",
+                  malformed_games.size(), season);
+        for (const auto& gid : malformed_games)
+            log->warn("  MALFORMED  {}", gid);
+        log->warn("─────────────────────────────────────────────────────────────");
+    }
 }
 
 // ── Dimension backfill: boxscore-only for games already in play_events ────
@@ -215,6 +279,7 @@ int main(int argc, char* argv[]) {
     int num_threads = 4;
     bool dry_run    = false;
     bool pop_dims   = false;
+    bool playoffs   = false;
     std::string conn_str = DEFAULT_CONN;
 
     for (int i = 1; i < argc; ++i) {
@@ -222,6 +287,7 @@ int main(int argc, char* argv[]) {
         if      (arg == "--help")                 { print_usage(); return 0; }
         else if (arg == "--dry-run")              dry_run  = true;
         else if (arg == "--populate-dimensions")  pop_dims = true;
+        else if (arg == "--playoffs")             playoffs = true;
         else if (arg == "--season"  && i+1 < argc) season      = std::stoi(argv[++i]);
         else if (arg == "--threads" && i+1 < argc) num_threads = std::stoi(argv[++i]);
         else if (arg == "--conn"    && i+1 < argc) conn_str    = argv[++i];
@@ -231,10 +297,28 @@ int main(int argc, char* argv[]) {
     if (pop_dims) {
         log->info("CORTEX ETL — populate-dimensions mode — {} threads", num_threads);
         run_populate_dimensions(conn_str, num_threads, log);
+    } else if (playoffs) {
+        log->info("CORTEX ETL — season {} PLAYOFFS — {} threads — dry_run={}",
+                  season, num_threads, dry_run);
+        run_season_load(conn_str, season, num_threads, dry_run, log, 4);
     } else {
         log->info("CORTEX ETL — season {} — {} threads — dry_run={}",
                   season, num_threads, dry_run);
         run_season_load(conn_str, season, num_threads, dry_run, log);
+    }
+
+    // Refresh materialized view so leaderboard picks up new data.
+    if (!dry_run) {
+        try {
+            pqxx::connection conn(conn_str);
+            pqxx::work txn(conn);
+            log->info("Refreshing player_game_stats materialized view…");
+            txn.exec("REFRESH MATERIALIZED VIEW CONCURRENTLY player_game_stats");
+            txn.commit();
+            log->info("Materialized view refreshed.");
+        } catch (const std::exception& e) {
+            log->warn("Materialized view refresh failed: {}", e.what());
+        }
     }
 
     return 0;

@@ -2,7 +2,32 @@
 
 C++20 system that ingests NBA game data, computes real-time statistics, and serves live analytics via HTTP/WebSocket. Target: sub-20ms p99 query latency across a corpus of 3.7M play-by-play events (6,637 games, 2019–2025).
 
-**Stack:** C++20 · PostgreSQL 15 · Redis 7 · ONNXRuntime · kqueue · llhttp
+**Stack:** C++20 · PostgreSQL 15 · Redis 7 · ONNXRuntime · kqueue/epoll · llhttp
+
+---
+
+## Running it (three commands)
+
+```bash
+# 1. Install dependencies (one time)
+brew install cmake postgresql@15 redis libpqxx spdlog simdjson googletest \
+             openssl hiredis llhttp onnxruntime
+
+# 2. Load historical NBA data (one time — ~20 minutes)
+./cortex.sh load
+
+# 3. Start everything and open the dashboard
+./cortex.sh start
+```
+
+`./cortex.sh start` handles the rest: starts PostgreSQL and Redis if they're not running, builds the binary if needed, launches the server, and opens `http://localhost:8080` in your browser automatically.
+
+Other commands:
+```
+./cortex.sh stop     — stop the server
+./cortex.sh status   — show what's running
+./cortex.sh bench    — run performance benchmarks
+```
 
 ---
 

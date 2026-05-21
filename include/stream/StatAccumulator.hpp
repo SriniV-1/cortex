@@ -12,6 +12,7 @@
 #include "StreamEvent.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <unordered_map>
 #include <deque>
@@ -109,6 +110,14 @@ public:
         return event_count_.load(std::memory_order_relaxed);
     }
 
+    // Evict all in-memory state for a specific game. Call after a game ends
+    // to reclaim memory from player_stats_, rolling_log_, team_stats_, scores_.
+    void evict_game(std::string_view game_id);
+
+    // Evict entries for all games that have not received an event in the
+    // given duration. Returns the number of games evicted.
+    size_t evict_stale(std::chrono::seconds max_age);
+
     void reset() noexcept;
 
 private:
@@ -138,6 +147,10 @@ private:
     // Latest score per game (game_id → {home, away})
     mutable std::shared_mutex score_mu_;
     std::unordered_map<std::string, std::pair<int16_t, int16_t>> scores_;
+
+    // Last-event timestamp per game for staleness eviction
+    using Clock = std::chrono::steady_clock;
+    std::unordered_map<std::string, Clock::time_point> game_last_seen_;  // guarded by score_mu_
 
     std::atomic<int64_t> event_count_{0};
 

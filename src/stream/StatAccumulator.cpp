@@ -1,4 +1,5 @@
 #include "stream/StatAccumulator.hpp"
+#include "common/Logger.hpp"
 #include <cstring>
 #include <functional>
 
@@ -34,6 +35,7 @@ void StatAccumulator::process(const StreamEvent& ev) noexcept {
         std::string gid(ev.game_id.data());
         std::unique_lock lock(score_mu_);
         scores_[gid] = {ev.score_home, ev.score_away};
+        game_last_seen_[gid] = Clock::now();
     }
 
     // Skip non-scoring/non-stat events
@@ -197,6 +199,7 @@ void StatAccumulator::reset() noexcept {
     {
         std::unique_lock l1(player_mu_);
         player_stats_.clear();
+        rolling_log_.clear();
     }
     {
         std::unique_lock l2(team_mu_);
@@ -205,8 +208,64 @@ void StatAccumulator::reset() noexcept {
     {
         std::unique_lock l3(score_mu_);
         scores_.clear();
+        game_last_seen_.clear();
     }
     event_count_.store(0, std::memory_order_relaxed);
+}
+
+// ── Eviction ──────────────────────────────────────────────────────────────
+
+void StatAccumulator::evict_game(std::string_view game_id) {
+    // Collect all compound keys that belong to this game.
+    // The lower 32 bits of the compound key encode the game suffix.
+    int32_t game_suffix = 0;
+    if (game_id.size() >= 7) {
+        for (size_t i = game_id.size() - 7; i < game_id.size(); ++i)
+            game_suffix = game_suffix * 10 + (game_id[i] - '0');
+    }
+    const uint32_t suffix = static_cast<uint32_t>(game_suffix);
+
+    auto matches_game = [suffix](int64_t key) {
+        return static_cast<uint32_t>(key) == suffix;
+    };
+
+    {
+        std::unique_lock lock(player_mu_);
+        std::erase_if(player_stats_, [&](const auto& kv) { return matches_game(kv.first); });
+        std::erase_if(rolling_log_,  [&](const auto& kv) { return matches_game(kv.first); });
+    }
+    {
+        std::unique_lock lock(team_mu_);
+        std::erase_if(team_stats_, [&](const auto& kv) { return matches_game(kv.first); });
+    }
+    {
+        std::string gid(game_id);
+        std::unique_lock lock(score_mu_);
+        scores_.erase(gid);
+        game_last_seen_.erase(gid);
+    }
+}
+
+size_t StatAccumulator::evict_stale(std::chrono::seconds max_age) {
+    auto cutoff = Clock::now() - max_age;
+    std::vector<std::string> stale_games;
+
+    {
+        std::shared_lock lock(score_mu_);
+        for (const auto& [gid, ts] : game_last_seen_) {
+            if (ts < cutoff) stale_games.push_back(gid);
+        }
+    }
+
+    for (const auto& gid : stale_games)
+        evict_game(gid);
+
+    if (!stale_games.empty()) {
+        auto log = cortex::get_logger("accumulator");
+        log->info("Evicted {} stale games (>{} sec idle)", stale_games.size(), max_age.count());
+    }
+
+    return stale_games.size();
 }
 
 } // namespace cortex::stream

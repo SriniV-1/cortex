@@ -127,6 +127,7 @@ public:
     std::string             subscribed_game_;
     std::mutex              ws_out_mu_;
     std::queue<std::string> ws_out_queue_;  // encoded frames
+    static constexpr size_t kMaxWsQueueFrames = 1024;
 };
 
 // ── HttpServer ─────────────────────────────────────────────────────────────

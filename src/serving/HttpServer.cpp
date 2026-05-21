@@ -1176,6 +1176,14 @@ void Connection::ws_send(std::string payload) {
     std::string frame = ws_encode_frame(payload);
     {
         std::lock_guard lock(ws_out_mu_);
+        if (ws_out_queue_.size() >= kMaxWsQueueFrames) {
+            // Client too slow — drop connection to prevent unbounded memory growth.
+            auto log = cortex::get_logger("ws");
+            log->warn("WebSocket fd={} exceeded {} queued frames — disconnecting slow client",
+                       fd_, kMaxWsQueueFrames);
+            state_ = State::Closing;
+            return;
+        }
         ws_out_queue_.push(std::move(frame));
     }
     // Re-register write interest so kqueue fires EVFILT_WRITE to flush.

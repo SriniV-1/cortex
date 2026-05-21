@@ -279,6 +279,17 @@ int main(int argc, char** argv) {
             server.broadcast(gid, std::string(buf, n));
     });
 
+    // ── Periodic stat eviction (reclaim memory for finished games) ─────────
+    std::jthread stat_evictor([&](std::stop_token stop) {
+        auto elog = cortex::get_logger("evictor");
+        while (!stop.stop_requested()) {
+            std::this_thread::sleep_for(std::chrono::minutes(10));
+            if (stop.stop_requested()) break;
+            // Evict games with no events in the last 4 hours
+            accumulator.evict_stale(std::chrono::seconds(4 * 3600));
+        }
+    });
+
     // ── Live ingestion (optional) ─────────────────────────────────────────
     std::unique_ptr<LiveIngestor> ingestor;
     if (enable_live) {

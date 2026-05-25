@@ -138,15 +138,21 @@ int main(int argc, char** argv) {
         return static_cast<long>(t4 - t);
     };
 
+    // Interruptible sleep: sleeps in 1-second increments, checking the stop token.
+    auto interruptible_sleep = [](std::stop_token& stop, long seconds) {
+        for (long i = 0; i < seconds && !stop.stop_requested(); ++i)
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+    };
+
     std::jthread daily_refresher;
     if (!db_conn.empty()) {
-        daily_refresher = std::jthread([&, current_nba_season, secs_until_4am](
-                                           std::stop_token stop) {
+        daily_refresher = std::jthread([&, current_nba_season, secs_until_4am,
+                                        interruptible_sleep](std::stop_token stop) {
             auto rlog = cortex::get_logger("refresh");
             // Wait until next 4 AM before the first run.
             long wait = secs_until_4am();
             rlog->info("Daily refresh scheduled in {:.1f} hours", wait / 3600.0);
-            std::this_thread::sleep_for(std::chrono::seconds(wait));
+            interruptible_sleep(stop, wait);
 
             while (!stop.stop_requested()) {
                 int season = current_nba_season();
@@ -197,7 +203,7 @@ int main(int argc, char** argv) {
                     rlog->warn("Daily refresh failed: {}", e.what());
                 }
                 // Sleep until next 4 AM.
-                std::this_thread::sleep_for(std::chrono::seconds(secs_until_4am()));
+                interruptible_sleep(stop, secs_until_4am());
             }
         });
     }
@@ -280,12 +286,10 @@ int main(int argc, char** argv) {
     });
 
     // ── Periodic stat eviction (reclaim memory for finished games) ─────────
-    std::jthread stat_evictor([&](std::stop_token stop) {
-        auto elog = cortex::get_logger("evictor");
+    std::jthread stat_evictor([&, interruptible_sleep](std::stop_token stop) {
         while (!stop.stop_requested()) {
-            std::this_thread::sleep_for(std::chrono::minutes(10));
+            interruptible_sleep(stop, 600);  // 10 minutes
             if (stop.stop_requested()) break;
-            // Evict games with no events in the last 4 hours
             accumulator.evict_stale(std::chrono::seconds(4 * 3600));
         }
     });
@@ -309,8 +313,20 @@ int main(int argc, char** argv) {
     log->info("Server ready. Ctrl+C to stop.");
     server.run();   // blocks until stop()
 
+    // ── Graceful shutdown — stop all background threads before locals destruct ──
+    log->info("Shutting down…");
     if (ingestor) ingestor->stop();
     proc.stop();
+
+    // Request stop on all jthreads so their interruptible sleeps exit promptly.
+    // jthread destructors call request_stop()+join() automatically, but we do
+    // it explicitly here to control ordering and avoid use-after-free on locals
+    // captured by reference (accumulator, db_conn, sim_index, elo_tracker).
+    if (stat_evictor.joinable())    { stat_evictor.request_stop();    stat_evictor.join(); }
+    if (daily_refresher.joinable()) { daily_refresher.request_stop(); daily_refresher.join(); }
+    if (elo_builder.joinable())     { elo_builder.request_stop();     elo_builder.join(); }
+    if (sim_builder.joinable())     { sim_builder.request_stop();     sim_builder.join(); }
+
     log->info("Shutdown complete.");
     return 0;
 }

@@ -68,7 +68,9 @@ static void run_season_load(
     // Early-termination: if this many consecutive game IDs are missing from the
     // S3 feed (and we've already loaded at least one game), the season data is
     // exhausted. Stop probing rather than burning time on dead IDs.
-    static constexpr int kMaxConsecutiveMiss = 30;
+    // Playoffs need a higher threshold because game IDs have natural gaps
+    // between rounds (e.g., round 2 ends at ~025x, conf finals start at 030x).
+    const int kMaxConsecutiveMiss = (season_type == 4) ? 80 : 30;
     std::atomic<int> consecutive_miss{0};
     std::atomic<bool> stop_early{false};
 

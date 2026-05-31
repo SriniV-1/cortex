@@ -21,12 +21,14 @@
 //    since they are indexed and sub-millisecond)
 
 #include "IOPoller.hpp"
+#include "serving/RateLimiter.hpp"
 #include "serving/RedisCache.hpp"
 #include "stream/StatAccumulator.hpp"
 #include "stream/StreamEvent.hpp"
 
 // Forward-declare to avoid pulling in pqxx + arm_neon headers into every TU.
 namespace cortex::analytics { class GameStateIndex; class EloTracker; }
+namespace cortex::etl { class LiveIngestor; }
 
 #include <string>
 #include <memory>
@@ -79,6 +81,9 @@ public:
     std::string                              www_root;
     const cortex::analytics::GameStateIndex* game_state_index   = nullptr;
     const cortex::analytics::EloTracker*    elo_tracker        = nullptr;
+    const cortex::etl::LiveIngestor*         live_ingestor      = nullptr;
+    RateLimiter*                             rate_limiter       = nullptr;
+    std::string                              client_ip;
 
     // Called from llhttp static callbacks — must remain accessible
     void process_http_request(const std::string& method,
@@ -143,6 +148,7 @@ public:
         std::string www_root    = "www";            // directory for static files
         const cortex::analytics::GameStateIndex* game_state_index = nullptr;
         const cortex::analytics::EloTracker*    elo_tracker      = nullptr;
+        const cortex::etl::LiveIngestor*         live_ingestor    = nullptr;
     };
 
     explicit HttpServer(Config cfg,
@@ -179,6 +185,8 @@ private:
     std::unique_ptr<pqxx::connection>        db_;
     // Redis cache (1-min TTL on aggregation results)
     std::unique_ptr<RedisCache>              cache_;
+    // Token bucket rate limiter
+    RateLimiter                              rate_limiter_;
 };
 
 } // namespace cortex::serving

@@ -9,6 +9,7 @@
 #include "serving/RedisCache.hpp"
 #include "analytics/GameStateIndex.hpp"
 #include "analytics/EloTracker.hpp"
+#include "etl/LiveIngestor.hpp"
 #include "common/Logger.hpp"
 
 #include <llhttp.h>
@@ -30,6 +31,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <arpa/inet.h>
 
 // Base64 encode (minimal, for WebSocket handshake)
 #include <openssl/evp.h>
@@ -307,6 +309,15 @@ void Connection::process_http_request(const std::string& method,
         return;
     }
 
+    // ── Rate limiting (skip /health and /metrics — operational endpoints)
+    if (rate_limiter && !client_ip.empty()) {
+        if (!rate_limiter->allow(client_ip)) {
+            send_response(429, "application/json",
+                R"({"error":"rate limit exceeded — try again later"})", false);
+            return;
+        }
+    }
+
     // ── /metrics (Prometheus) ────────────────────────────────────────────
     if (method == "GET" && path == "/metrics") {
         std::ostringstream m;
@@ -314,6 +325,31 @@ void Connection::process_http_request(const std::string& method,
           << "# TYPE cortex_events_processed counter\n";
         if (accumulator)
             m << "cortex_events_processed " << accumulator->event_count() << "\n";
+
+        m << "# HELP cortex_active_games Number of games currently tracked in accumulator\n"
+          << "# TYPE cortex_active_games gauge\n";
+        if (accumulator)
+            m << "cortex_active_games " << accumulator->game_count() << "\n";
+
+        m << "# HELP cortex_rate_limiter_buckets Number of active rate limiter buckets\n"
+          << "# TYPE cortex_rate_limiter_buckets gauge\n";
+        if (rate_limiter)
+            m << "cortex_rate_limiter_buckets " << rate_limiter->bucket_count() << "\n";
+
+        m << "# HELP cortex_similarity_index_size Number of vectors in similarity index\n"
+          << "# TYPE cortex_similarity_index_size gauge\n";
+        if (game_state_index && game_state_index->loaded())
+            m << "cortex_similarity_index_size " << game_state_index->size() << "\n";
+        else
+            m << "cortex_similarity_index_size 0\n";
+
+        m << "# HELP cortex_elo_games_processed Total games used for Elo computation\n"
+          << "# TYPE cortex_elo_games_processed gauge\n";
+        if (elo_tracker && elo_tracker->built())
+            m << "cortex_elo_games_processed " << elo_tracker->games_processed() << "\n";
+        else
+            m << "cortex_elo_games_processed 0\n";
+
         send_response(200, "text/plain; version=0.0.4", m.str(), false);
         return;
     }
@@ -957,6 +993,35 @@ void Connection::process_http_request(const std::string& method,
         return;
     }
 
+    // ── /api/scoreboard — today's NBA games (live + scheduled + final) ──
+    if (method == "GET" && path == "/api/scoreboard") {
+        if (!live_ingestor) {
+            send_response(503, "application/json",
+                R"json({"error":"live ingestion not enabled -- start with --live"})json", false);
+            return;
+        }
+        auto games = live_ingestor->scoreboard_snapshot();
+        std::ostringstream j;
+        j << "{\"games\":[";
+        for (size_t i = 0; i < games.size(); ++i) {
+            if (i > 0) j << ",";
+            const auto& g = games[i];
+            j << "{"
+              << "\"game_id\":"   << json_str(g.game_id) << ","
+              << "\"status\":"    << g.status << ","
+              << "\"home\":"      << json_str(g.home_tricode) << ","
+              << "\"away\":"      << json_str(g.away_tricode) << ","
+              << "\"home_score\":" << g.home_score << ","
+              << "\"away_score\":" << g.away_score << ","
+              << "\"period\":"    << g.period << ","
+              << "\"game_clock\":" << json_str(g.game_clock)
+              << "}";
+        }
+        j << "]}";
+        send_response(200, "application/json", j.str(), false);
+        return;
+    }
+
     // ── /api/elo — team Elo ratings ────────────────────────────────────
     if (method == "GET" && path == "/api/elo") {
         if (!elo_tracker || !elo_tracker->built()) {
@@ -984,6 +1049,31 @@ void Connection::process_http_request(const std::string& method,
               << ",\"wins\":" << te.wins
               << ",\"losses\":" << te.losses
               << "}";
+        }
+        j << "]}";
+        send_response(200, "application/json", j.str(), false);
+        return;
+    }
+
+    // ── /api/elo/history — Elo rating trajectory across seasons ──────────
+    if (method == "GET" && path == "/api/elo/history") {
+        if (!elo_tracker || !elo_tracker->built()) {
+            send_response(503, "application/json",
+                R"({"error":"Elo ratings not ready yet"})", false);
+            return;
+        }
+        auto history = elo_tracker->elo_history();
+        // Group by season, then by tricode
+        std::ostringstream j;
+        j << "{\"snapshots\":[";
+        for (size_t i = 0; i < history.size(); ++i) {
+            if (i > 0) j << ",";
+            const auto& s = history[i];
+            j << "{\"season\":" << s.season
+              << ",\"tricode\":" << json_str(s.tricode)
+              << ",\"rating\":" << std::fixed;
+            j.precision(0);
+            j << s.rating << "}";
         }
         j << "]}";
         send_response(200, "application/json", j.str(), false);
@@ -1363,6 +1453,16 @@ void HttpServer::accept_connection() {
         conn->www_root          = cfg_.www_root;
         conn->game_state_index  = cfg_.game_state_index;
         conn->elo_tracker       = cfg_.elo_tracker;
+        conn->live_ingestor     = cfg_.live_ingestor;
+        conn->rate_limiter      = &rate_limiter_;
+
+        // Extract client IP for rate limiting
+        if (peer.ss_family == AF_INET) {
+            char ip[INET_ADDRSTRLEN]{};
+            auto* sa4 = reinterpret_cast<struct sockaddr_in*>(&peer);
+            ::inet_ntop(AF_INET, &sa4->sin_addr, ip, sizeof(ip));
+            conn->client_ip = ip;
+        }
 
         Connection* raw = conn.get();
 

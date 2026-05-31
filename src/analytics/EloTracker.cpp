@@ -83,6 +83,7 @@ void EloTracker::build_from_db(pqxx::connection& conn) {
 
     std::unique_lock lock(mu_);
     ratings_.clear();
+    history_.clear();
     games_processed_ = 0;
 
     pqxx::work txn(conn);
@@ -113,8 +114,13 @@ void EloTracker::build_from_db(pqxx::connection& conn) {
     for (const auto& row : games) {
         int season = row["season"].as<int>();
 
-        // Regress ratings toward mean at season boundaries.
+        // Snapshot and regress ratings at season boundaries.
         if (prev_season >= 0 && season != prev_season) {
+            // Capture end-of-season snapshot before regression
+            for (const auto& [id, te] : ratings_) {
+                if (!te.tricode.empty())
+                    history_.push_back({prev_season, te.tricode, te.rating});
+            }
             regress_to_mean();
             log->debug("Season {} → {}: ratings regressed to mean", prev_season, season);
         }
@@ -134,6 +140,14 @@ void EloTracker::build_from_db(pqxx::connection& conn) {
 
         update(winner_id, loser_id, home_won, is_playoff);
         games_processed_++;
+    }
+
+    // Capture final season snapshot
+    if (prev_season >= 0) {
+        for (const auto& [id, te] : ratings_) {
+            if (!te.tricode.empty())
+                history_.push_back({prev_season, te.tricode, te.rating});
+        }
     }
 
     auto t1 = std::chrono::steady_clock::now();
@@ -156,6 +170,11 @@ void EloTracker::build_from_db(pqxx::connection& conn) {
                   i + 1, sorted[i].tricode, sorted[i].rating,
                   sorted[i].wins, sorted[i].losses);
     }
+}
+
+std::vector<EloSnapshot> EloTracker::elo_history() const {
+    std::shared_lock lock(mu_);
+    return history_;
 }
 
 void EloTracker::save_to_db(pqxx::connection& conn) const {

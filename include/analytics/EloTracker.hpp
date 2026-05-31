@@ -30,6 +30,13 @@ struct TeamElo {
     int         losses;
 };
 
+// Snapshot of a team's rating at the end of a season.
+struct EloSnapshot {
+    int         season;
+    std::string tricode;
+    float       rating;
+};
+
 class EloTracker {
 public:
     static constexpr float INITIAL_RATING   = 1500.0f;
@@ -59,6 +66,10 @@ public:
     // All current ratings, sorted by rating descending.
     std::vector<TeamElo> all_ratings() const;
 
+    // Elo rating history: end-of-season snapshots for every team.
+    // Enables trajectory charts showing how ratings evolved across seasons.
+    std::vector<EloSnapshot> elo_history() const;
+
     bool   built() const noexcept { return built_; }
     size_t games_processed() const noexcept { return games_processed_; }
     double build_ms() const noexcept { return build_ms_; }
@@ -66,6 +77,7 @@ public:
 private:
     mutable std::shared_mutex mu_;
     std::unordered_map<int32_t, TeamElo> ratings_;
+    std::vector<EloSnapshot> history_;  // season-end snapshots
     bool   built_ = false;
     size_t games_processed_ = 0;
     double build_ms_ = 0.0;

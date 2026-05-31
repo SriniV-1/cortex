@@ -55,6 +55,14 @@ across 4.7M play-by-play events (8,400+ games, 1,250 players, 30 teams, 2019-202
 | **Phase 4** | Search endpoints | Done | Player search, game/team search, event search (whitelist validated) |
 | **Phase 4** | Interactive dashboard | Done | Leaderboard tabs, game type filter, team autofill, Elo modal, live WS auto-connect |
 | **Phase 4** | Daily auto-refresh | Done | 4 AM background thread, current season only, materialized view refresh |
+| **Phase 5** | GitHub Actions CI | Done | Matrix build (Ubuntu + macOS), ctest, ASan/UBSan on every push |
+| **Phase 5** | Docker containerization | Done | Multi-stage Dockerfile, docker-compose (Postgres + Redis + Cortex) |
+| **Phase 5** | CMake portability | Done | Replace hardcoded /opt/homebrew paths with find_package/pkg_check_modules |
+| **Phase 5** | Integration tests | Done | 6 end-to-end tests: schema, games, events, Elo determinism, API health, leaderboard |
+| **Phase 5** | API rate limiting | Done | Token bucket rate limiter (50 req/sec, 100 burst), 429 on exceeded, per-IP tracking |
+| **Phase 5** | Enriched Prometheus metrics | Done | 5 metric families: events, active games, rate limiter, similarity index, Elo |
+| **Phase 5** | Grafana observability | Done | Pre-built dashboard JSON (8 panels) + Prometheus scrape config |
+| **Phase 5** | Frontend data visualization | Done | Chart.js Elo trajectory (line) + rating distribution (bar), /api/elo/history endpoint |
 
 ---
 
@@ -132,6 +140,61 @@ win probability, interactive dashboard.
 
 ---
 
+## Phase 5 — Production Readiness & Polish
+
+**Goal:** Close the gap between "impressive intern project" and "production-grade system" —
+CI/CD automation, containerized deployment, cross-platform portability, integration testing,
+and frontend data visualization.
+
+**Planned work:**
+
+1. **GitHub Actions CI** — Matrix build targeting Ubuntu 24.04 + macOS 14 (ARM).
+   Runs `ctest --output-on-failure` on every push/PR. Debug builds with
+   `-fsanitize=address,undefined` to catch regressions. Caches vcpkg/Homebrew
+   deps for fast CI turnaround.
+
+2. **Docker containerization** — Multi-stage Dockerfile: build stage compiles
+   Cortex with all deps, runtime stage ships just the binary + ONNX model + www/.
+   `docker-compose.yml` orchestrates PostgreSQL 15, Redis 7, and Cortex with
+   health checks and proper startup ordering. One-command local setup:
+   `docker compose up`.
+
+3. **CMake portability** — Replace all hardcoded `/opt/homebrew` paths with
+   `find_library()` / `pkg_check_modules()` that work on both macOS (Homebrew)
+   and Linux (apt/vcpkg). Keep Apple-specific hints as fallbacks, not requirements.
+
+4. **Integration tests** — Tests that spin up a test database with a small
+   fixture dataset (~100 games), run ETL, then verify end-to-end correctness:
+   API responses match expected JSON structure, leaderboard ordering is correct,
+   Elo ratings are deterministic, similarity search returns sane results.
+
+5. **API rate limiting** — Token bucket rate limiter (`RateLimiter.hpp`) with
+   configurable burst (100) and refill rate (50 req/sec) per client IP.
+   Applied to all endpoints except `/health` and `/metrics`. Returns HTTP 429
+   on exceeded limits. Stale buckets evicted after 5 minutes.
+
+6. **Enriched Prometheus metrics** — Expanded `/metrics` endpoint from 1 to 5
+   metric families: `cortex_events_processed`, `cortex_active_games`,
+   `cortex_rate_limiter_buckets`, `cortex_similarity_index_size`,
+   `cortex_elo_games_processed`. Added `game_count()` to StatAccumulator.
+
+7. **Grafana observability dashboard** — Pre-built Grafana JSON provisioning
+   file (`grafana/cortex-dashboard.json`) with 8 panels: 4 stat panels
+   (events, games, index size, Elo) + 4 time-series panels (throughput rate,
+   active clients, games over time, cumulative events). Includes Prometheus
+   scrape config (`grafana/prometheus.yml`).
+
+8. **Frontend data visualization** — Chart.js integrated via CDN. Two new
+   chart panels below the Elo rankings: (1) Elo Rating Trajectory — line chart
+   showing per-team ratings across all seasons with Top 5/Top 10/All 30 toggle
+   controls and team-specific colors; (2) Rating Distribution — horizontal bar
+   chart of all 30 teams' current Elo ratings sorted descending. New backend
+   endpoint `/api/elo/history` serves season-end snapshots captured during
+   `build_from_db()` via `EloSnapshot` struct. Charts use team brand colors,
+   custom tooltips with JetBrains Mono, and responsive sizing.
+
+---
+
 ## Performance Summary
 
 | Benchmark | Result |
@@ -154,9 +217,11 @@ win probability, interactive dashboard.
 | Unit tests + benchmarks | 1,625 | 8 |
 | Frontend (HTML/CSS/JS) | ~1,100 | 1 |
 | SQL schema | 228 | 1 |
+| Integration tests | ~240 | 1 |
 | Shell + Python scripts | ~615 | 3 |
-| CMake build | 195 | 1 |
-| **Total** | **~9,200** | **38** |
+| CMake build | 220 | 1 |
+| CI/CD + Docker | ~160 | 4 |
+| **Total** | **~9,800** | **44** |
 
 ---
 
@@ -169,6 +234,11 @@ CORTEX/
 ├── PROJECT_DESCRIPTION.md  <- resume/LinkedIn handoff
 ├── CMakeLists.txt          <- root build (7 executables + 4 static libraries)
 ├── cortex.sh               <- start/stop/load/bench convenience script
+├── Dockerfile              <- multi-stage build (Phase 5)
+├── docker-compose.yml      <- one-command local setup (Phase 5)
+├── .github/
+│   └── workflows/
+│       └── ci.yml          <- GitHub Actions CI (Phase 5)
 ├── sql/
 │   └── schema.sql          <- PG15 schema with range partitions + materialized views
 ├── include/
@@ -230,3 +300,4 @@ NBA_S3_BASE=https://nba-prod-us-east-1-mediaops-stats.s3.amazonaws.com/NBA/liveD
 | 7 | StatAccumulator maps grew monotonically | Added time-based eviction (4-hour staleness, 10-minute sweep interval) |
 | 8 | WebSocket outbound queue unbounded | Capped at 1024 frames per connection; slow clients disconnected |
 | 9 | `shared_mutex` deadlock in EloTracker | `build_from_db()` held unique_lock then called method needing shared_lock; inlined the logic |
+| 10 | Live games never appeared in dashboard | `/api/games/recent` only queried DB (status=3). Added `/api/scoreboard` backed by LiveIngestor's cached scoreboard snapshot; frontend now fetches both endpoints in parallel |

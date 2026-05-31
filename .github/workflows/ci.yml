@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            build_type: Release
+          - os: ubuntu-24.04
+            build_type: Debug
+          - os: macos-14
+            build_type: Release
+
+    runs-on: ${{ matrix.os }}
+
+    services:
+      postgres:
+        image: ${{ matrix.os == 'ubuntu-24.04' && 'postgres:15' || '' }}
+        env:
+          POSTGRES_USER: runner
+          POSTGRES_DB: cortex_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGDATABASE: cortex_test
+      PGUSER: runner
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config \
+            libpqxx-dev libspdlog-dev libsimdjson-dev \
+            libcurl4-openssl-dev libssl-dev \
+            libhiredis-dev libgtest-dev \
+            libonnxruntime-dev llhttp-dev \
+            redis-server
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install cmake ninja pkg-config \
+            libpqxx spdlog simdjson curl openssl \
+            hiredis googletest onnxruntime llhttp \
+            postgresql@15 redis
+
+      - name: Start services (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew services start postgresql@15
+          brew services start redis
+          sleep 3
+          /opt/homebrew/opt/postgresql@15/bin/createdb -p 5432 cortex_test || true
+
+      - name: Start Redis (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo systemctl start redis-server || redis-server --daemonize yes
+
+      - name: Apply database schema
+        run: |
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            /opt/homebrew/opt/postgresql@15/bin/psql -p 5432 -d cortex_test -f sql/schema.sql -q
+          else
+            psql -d cortex_test -f sql/schema.sql -q
+          fi
+
+      - name: Configure CMake
+        run: |
+          cmake -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Build
+        run: cmake --build build -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)
+
+      - name: Run unit tests
+        run: cd build && ctest --output-on-failure --timeout 60
+
+      - name: Run integration tests
+        env:
+          CORTEX_TEST_DB: "host=localhost port=5432 dbname=cortex_test"
+          CORTEX_RUN_INTEGRATION_TESTS: "1"
+        run: |
+          if [[ -f build/cortex_integration_tests ]]; then
+            ./build/cortex_integration_tests
+          else
+            echo "Integration test binary not found — skipping"
+          fi

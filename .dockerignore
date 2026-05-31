@@ -1,0 +1,9 @@
+build/
+build-debug/
+.cortex.pid
+.cortex.log
+*.o
+*.a
+.git
+.github
+.DS_Store

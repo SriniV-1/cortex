@@ -110,6 +110,12 @@ public:
         return event_count_.load(std::memory_order_relaxed);
     }
 
+    // Number of games currently tracked in memory
+    size_t game_count() const {
+        std::shared_lock lock(score_mu_);
+        return scores_.size();
+    }
+
     // Evict all in-memory state for a specific game. Call after a game ends
     // to reclaim memory from player_stats_, rolling_log_, team_stats_, scores_.
     void evict_game(std::string_view game_id);

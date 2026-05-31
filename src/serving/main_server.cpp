@@ -217,6 +217,12 @@ int main(int argc, char** argv) {
         log->warn("Win probability model unavailable: {} — broadcasting without win_prob", e.what());
     }
 
+    // ── Live ingestion (optional — create early so HttpServer can reference it)
+    std::unique_ptr<LiveIngestor> ingestor;
+    if (enable_live) {
+        ingestor = std::make_unique<LiveIngestor>(ring, poll_interval_ms);
+    }
+
     // ── Stream processor ──────────────────────────────────────────────────
     StreamProcessor proc(ring, accumulator);
 
@@ -227,6 +233,7 @@ int main(int argc, char** argv) {
     server_cfg.www_root          = www_root;
     server_cfg.game_state_index  = &sim_index;
     server_cfg.elo_tracker       = &elo_tracker;
+    server_cfg.live_ingestor     = ingestor.get();
 
     HttpServer server(server_cfg, accumulator);
     g_server = &server;
@@ -259,27 +266,31 @@ int main(int argc, char** argv) {
             catch (...) { wp = -1.0f; }
         }
 
-        char buf[320];
+        char buf[400];
         int n;
         if (wp >= 0.0f) {
             n = std::snprintf(buf, sizeof(buf),
-                R"({"event":"play","game_id":"%s","player_id":%d,"action":%d,"shot_made":%s,"score_home":%d,"score_away":%d,"win_prob":%.4f})",
+                R"({"event":"play","game_id":"%s","player_id":%d,"action":%d,"shot_made":%s,"score_home":%d,"score_away":%d,"period":%d,"clock_secs":%d,"win_prob":%.4f})",
                 gid.c_str(),
                 ev.player_id,
                 static_cast<int>(ev.action_type),
                 ev.shot_made ? "true" : "false",
                 ev.score_home,
                 ev.score_away,
+                static_cast<int>(ev.period),
+                static_cast<int>(ev.clock_secs),
                 static_cast<double>(wp));
         } else {
             n = std::snprintf(buf, sizeof(buf),
-                R"({"event":"play","game_id":"%s","player_id":%d,"action":%d,"shot_made":%s,"score_home":%d,"score_away":%d})",
+                R"({"event":"play","game_id":"%s","player_id":%d,"action":%d,"shot_made":%s,"score_home":%d,"score_away":%d,"period":%d,"clock_secs":%d})",
                 gid.c_str(),
                 ev.player_id,
                 static_cast<int>(ev.action_type),
                 ev.shot_made ? "true" : "false",
                 ev.score_home,
-                ev.score_away);
+                ev.score_away,
+                static_cast<int>(ev.period),
+                static_cast<int>(ev.clock_secs));
         }
         if (n > 0)
             server.broadcast(gid, std::string(buf, n));
@@ -294,10 +305,8 @@ int main(int argc, char** argv) {
         }
     });
 
-    // ── Live ingestion (optional) ─────────────────────────────────────────
-    std::unique_ptr<LiveIngestor> ingestor;
-    if (enable_live) {
-        ingestor = std::make_unique<LiveIngestor>(ring, poll_interval_ms);
+    // ── Start live ingestion ────────────────────────────────────────────
+    if (ingestor) {
         ingestor->start();
         log->info("LiveIngestor started (poll interval: {}ms)", poll_interval_ms);
     } else {

@@ -89,7 +89,8 @@ ensure_redis() {
 ensure_build() {
   if [[ ! -f "$BUILD_DIR/cortex_server" ]]; then
     info "Building Cortex (first run — this takes about 30 seconds)..."
-    cmake -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -S "$SCRIPT_DIR" -q
+    cmake -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release -S "$SCRIPT_DIR" 2>&1 \
+      | grep -v "^--\|^- \|^Check\|ignoring" || true
     cmake --build "$BUILD_DIR" -j"$(sysctl -n hw.logicalcpu)" --target cortex_server 2>&1 \
       | grep -v "^--\|^- \|ignoring" || true
     [[ -f "$BUILD_DIR/cortex_server" ]] || die "Build failed. Run: cmake --build build --target cortex_server"

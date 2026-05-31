@@ -1,0 +1,227 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "Prometheus data source for Cortex metrics",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "Events Processed",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1000000 },
+              { "color": "red", "value": 5000000 }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "expr": "cortex_events_processed",
+          "legendFormat": "Events"
+        }
+      ]
+    },
+    {
+      "title": "Active Games",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "blue", "value": null },
+              { "color": "green", "value": 1 },
+              { "color": "orange", "value": 10 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "cortex_active_games",
+          "legendFormat": "Games"
+        }
+      ]
+    },
+    {
+      "title": "Similarity Index Size",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "purple", "value": null }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "expr": "cortex_similarity_index_size",
+          "legendFormat": "Vectors"
+        }
+      ]
+    },
+    {
+      "title": "Elo Games Processed",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "expr": "cortex_elo_games_processed",
+          "legendFormat": "Games"
+        }
+      ]
+    },
+    {
+      "title": "Event Throughput (rate)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 15,
+            "gradientMode": "scheme",
+            "showPoints": "never"
+          },
+          "unit": "ops"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "rate(cortex_events_processed[5m])",
+          "legendFormat": "Events/sec (5m avg)"
+        }
+      ]
+    },
+    {
+      "title": "Rate Limiter Active Buckets",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "unit": "short"
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "cortex_rate_limiter_buckets",
+          "legendFormat": "Active Clients"
+        }
+      ]
+    },
+    {
+      "title": "Active Games Over Time",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "blue", "mode": "fixed" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "showPoints": "never"
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "cortex_active_games",
+          "legendFormat": "Games Tracked"
+        }
+      ]
+    },
+    {
+      "title": "Total Events (cumulative)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": "${DS_PROMETHEUS}",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "green", "mode": "fixed" },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "expr": "cortex_events_processed",
+          "legendFormat": "Total Events"
+        }
+      ]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["cortex", "nba", "analytics"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Cortex NBA Analytics",
+  "uid": "cortex-nba",
+  "version": 1
+}

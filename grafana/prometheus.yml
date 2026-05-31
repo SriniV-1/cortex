@@ -1,0 +1,18 @@
+# Prometheus scrape config for Cortex
+# Usage: mount this file into a Prometheus container, or use with local Prometheus.
+#
+#   docker run -p 9090:9090 \
+#     -v $(pwd)/grafana/prometheus.yml:/etc/prometheus/prometheus.yml \
+#     prom/prometheus
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "cortex"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["cortex:8080"]
+        labels:
+          service: "cortex-nba"

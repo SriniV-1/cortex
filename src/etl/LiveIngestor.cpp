@@ -70,6 +70,13 @@ void LiveIngestor::poll_once() {
     auto log = cortex::get_logger("live_ingestor");
 
     auto games = client_.fetch_scoreboard();
+
+    // Cache the full scoreboard for the /api/scoreboard endpoint
+    {
+        std::lock_guard lock(scoreboard_mu_);
+        scoreboard_ = games;
+    }
+
     int live_count = 0;
     int new_events = 0;
 

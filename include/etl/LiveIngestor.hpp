@@ -19,6 +19,7 @@
 #include "stream/StreamEvent.hpp"
 
 #include <atomic>
+#include <mutex>
 #include <thread>
 #include <unordered_map>
 #include <cstdint>
@@ -45,6 +46,12 @@ public:
 
     // Total events injected since start.
     int64_t events_injected() const noexcept { return events_injected_.load(); }
+
+    // Latest scoreboard snapshot (thread-safe). Updated every poll cycle.
+    std::vector<GameSummary> scoreboard_snapshot() const {
+        std::lock_guard lock(scoreboard_mu_);
+        return scoreboard_;
+    }
 
 private:
     void run();
@@ -74,6 +81,10 @@ private:
     std::unordered_map<std::string, int64_t>  watermarks_;
     // Per-game team IDs (populated from scoreboard).
     std::unordered_map<std::string, std::pair<int32_t,int32_t>> team_ids_;
+
+    // Latest scoreboard for external consumption.
+    mutable std::mutex             scoreboard_mu_;
+    std::vector<GameSummary>       scoreboard_;
 };
 
 } // namespace cortex::etl

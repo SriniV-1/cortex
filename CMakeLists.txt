@@ -17,15 +17,27 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     endif()
 endif()
 
-# ── Homebrew prefix (macOS arm64) ──────────────────────────────────────────
+# ── Platform hints ─────────────────────────────────────────────────────────
+# On macOS with Homebrew, add prefix so find_* commands discover packages.
+# On Linux, system paths (/usr/lib, /usr/include) are searched by default.
 if(APPLE)
-    # Apple Silicon Homebrew lives at /opt/homebrew
-    list(PREPEND CMAKE_PREFIX_PATH "/opt/homebrew")
-    include_directories(SYSTEM "/opt/homebrew/include")
-    link_directories("/opt/homebrew/lib")
-    # PostgreSQL 15 headers
-    include_directories(SYSTEM "/opt/homebrew/opt/postgresql@15/include")
-    link_directories("/opt/homebrew/opt/postgresql@15/lib")
+    execute_process(
+        COMMAND brew --prefix
+        OUTPUT_VARIABLE HOMEBREW_PREFIX
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(NOT HOMEBREW_PREFIX)
+        set(HOMEBREW_PREFIX "/opt/homebrew")
+    endif()
+    list(PREPEND CMAKE_PREFIX_PATH "${HOMEBREW_PREFIX}")
+    include_directories(SYSTEM "${HOMEBREW_PREFIX}/include")
+    link_directories("${HOMEBREW_PREFIX}/lib")
+    # PostgreSQL 15 (Homebrew keg-only)
+    if(EXISTS "${HOMEBREW_PREFIX}/opt/postgresql@15")
+        include_directories(SYSTEM "${HOMEBREW_PREFIX}/opt/postgresql@15/include")
+        link_directories("${HOMEBREW_PREFIX}/opt/postgresql@15/lib")
+    endif()
 endif()
 
 # ── Find packages ──────────────────────────────────────────────────────────
@@ -40,19 +52,37 @@ find_package(GTest REQUIRED)
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
 
-# hiredis
-find_library(HIREDIS_LIB hiredis HINTS /opt/homebrew/lib REQUIRED)
-set(HIREDIS_INCLUDE_DIR /opt/homebrew/include)
+# hiredis — try pkg-config first, fall back to find_library
+pkg_check_modules(HIREDIS IMPORTED_TARGET hiredis)
+if(NOT HIREDIS_FOUND)
+    find_library(HIREDIS_LIB hiredis REQUIRED)
+    find_path(HIREDIS_INCLUDE_DIR hiredis/hiredis.h REQUIRED)
+else()
+    set(HIREDIS_LIB PkgConfig::HIREDIS)
+    set(HIREDIS_INCLUDE_DIR ${HIREDIS_INCLUDE_DIRS})
+endif()
 
-# llhttp
-find_library(LLHTTP_LIB llhttp HINTS /opt/homebrew/lib REQUIRED)
-set(LLHTTP_INCLUDE_DIR /opt/homebrew/include)
+# llhttp — try pkg-config first, fall back to find_library
+pkg_check_modules(LLHTTP IMPORTED_TARGET libllhttp)
+if(NOT LLHTTP_FOUND)
+    find_library(LLHTTP_LIB llhttp REQUIRED)
+    find_path(LLHTTP_INCLUDE_DIR llhttp.h REQUIRED)
+else()
+    set(LLHTTP_LIB PkgConfig::LLHTTP)
+    set(LLHTTP_INCLUDE_DIR ${LLHTTP_INCLUDE_DIRS})
+endif()
 
-# ONNXRuntime (Homebrew arm64)
-find_library(ORT_LIB onnxruntime
-    HINTS /opt/homebrew/lib
-    REQUIRED)
-set(ORT_INCLUDE_DIR /opt/homebrew/include/onnxruntime)
+# ONNXRuntime — try pkg-config, then cmake config, then manual search
+pkg_check_modules(ORT IMPORTED_TARGET libonnxruntime)
+if(ORT_FOUND)
+    set(ORT_LIB PkgConfig::ORT)
+    set(ORT_INCLUDE_DIR ${ORT_INCLUDE_DIRS})
+else()
+    find_library(ORT_LIB onnxruntime REQUIRED)
+    find_path(ORT_INCLUDE_DIR onnxruntime_cxx_api.h
+        PATH_SUFFIXES onnxruntime onnxruntime/core/session
+        REQUIRED)
+endif()
 
 # ── Common header-only interface library ──────────────────────────────────
 add_library(cortex_common INTERFACE)
@@ -164,6 +194,21 @@ target_link_libraries(cortex_tests PRIVATE
 
 include(GoogleTest)
 gtest_discover_tests(cortex_tests DISCOVERY_TIMEOUT 30)
+
+# ── Integration tests (require DB — skipped unless CORTEX_RUN_INTEGRATION_TESTS=1)
+add_executable(cortex_integration_tests
+    tests/integration/test_integration.cpp
+)
+target_compile_definitions(cortex_integration_tests PRIVATE
+    CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+)
+target_link_libraries(cortex_integration_tests PRIVATE
+    cortex_serving_lib
+    cortex_analytics_lib
+    cortex_etl_lib
+    GTest::gtest
+    GTest::gtest_main
+)
 
 # ── Query latency benchmark ───────────────────────────────────────────────
 add_executable(cortex_bench tests/benchmarks/bench_queries.cpp)

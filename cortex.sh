@@ -144,6 +144,7 @@ cmd_start() {
     --port 8080 \
     --db "host=localhost port=$PGPORT dbname=$DBNAME" \
     --www "$SCRIPT_DIR/www" \
+    --log "$LOG_FILE" \
     --live \
     >> "$LOG_FILE" 2>&1 &
 

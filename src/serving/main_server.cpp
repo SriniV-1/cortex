@@ -28,6 +28,8 @@
 #include <cstring>
 #include <cstdlib>
 #include <iostream>
+#include <fstream>
+#include <filesystem>
 
 using namespace cortex;
 using namespace cortex::stream;
@@ -55,6 +57,7 @@ int main(int argc, char** argv) {
     std::string www_root         = "www";
 
     std::string model_path = "data/models/win_prob.onnx";
+    std::string log_file;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--port") == 0 && i + 1 < argc)
@@ -71,6 +74,8 @@ int main(int argc, char** argv) {
             poll_interval_ms = std::atoi(argv[++i]);
         if (std::strcmp(argv[i], "--www") == 0 && i + 1 < argc)
             www_root = argv[++i];
+        if (std::strcmp(argv[i], "--log") == 0 && i + 1 < argc)
+            log_file = argv[++i];
     }
 
     auto log = cortex::get_logger("main");
@@ -144,10 +149,32 @@ int main(int argc, char** argv) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
     };
 
+    // Truncate log file to the last N lines to prevent unbounded growth.
+    auto truncate_log = [&log_file](int keep_lines = 1000) {
+        if (log_file.empty()) return;
+        try {
+            if (!std::filesystem::exists(log_file)) return;
+            auto size = std::filesystem::file_size(log_file);
+            if (size < 512 * 1024) return;  // only bother if > 512 KB
+
+            std::ifstream in(log_file);
+            std::vector<std::string> lines;
+            std::string line;
+            while (std::getline(in, line)) lines.push_back(std::move(line));
+            in.close();
+
+            if (static_cast<int>(lines.size()) <= keep_lines) return;
+
+            std::ofstream out(log_file, std::ios::trunc);
+            for (size_t i = lines.size() - keep_lines; i < lines.size(); ++i)
+                out << lines[i] << '\n';
+        } catch (...) {}
+    };
+
     std::jthread daily_refresher;
     if (!db_conn.empty()) {
         daily_refresher = std::jthread([&, current_nba_season, secs_until_4am,
-                                        interruptible_sleep](std::stop_token stop) {
+                                        interruptible_sleep, truncate_log](std::stop_token stop) {
             auto rlog = cortex::get_logger("refresh");
             // Wait until next 4 AM before the first run.
             long wait = secs_until_4am();
@@ -202,6 +229,8 @@ int main(int argc, char** argv) {
                 } catch (const std::exception& e) {
                     rlog->warn("Daily refresh failed: {}", e.what());
                 }
+                // Truncate log file to prevent unbounded disk growth.
+                truncate_log(1000);
                 // Sleep until next 4 AM.
                 interruptible_sleep(stop, secs_until_4am());
             }

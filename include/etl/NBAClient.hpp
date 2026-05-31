@@ -54,6 +54,8 @@ struct GameSummary {
     int         status;          // 1=scheduled, 2=live, 3=final
     int         away_score;
     int         home_score;
+    int         period{0};       // current period (1-4, 5+ for OT)
+    std::string game_clock;      // ISO 8601 duration e.g. "PT05M30.00S"
 };
 
 // Full team metadata from the boxscore endpoint.

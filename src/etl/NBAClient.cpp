@@ -118,6 +118,15 @@ std::vector<GameSummary> NBAClient::fetch_scoreboard() const {
         gs.home_score = (home_score_val.error() == simdjson::SUCCESS)
                       ? static_cast<int>(int64_t(home_score_val)) : 0;
 
+        // Period and game clock (available for live games)
+        auto period_val = game["period"];
+        gs.period = (period_val.error() == simdjson::SUCCESS)
+                  ? static_cast<int>(int64_t(period_val)) : 0;
+        auto clock_val = game["gameClock"];
+        if (clock_val.error() == simdjson::SUCCESS) {
+            gs.game_clock = std::string(std::string_view(clock_val));
+        }
+
         results.push_back(std::move(gs));
     }
 

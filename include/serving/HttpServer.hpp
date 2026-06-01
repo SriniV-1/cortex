@@ -23,6 +23,7 @@
 #include "IOPoller.hpp"
 #include "serving/RateLimiter.hpp"
 #include "serving/RedisCache.hpp"
+#include "serving/Router.hpp"
 #include "stream/StatAccumulator.hpp"
 #include "stream/StreamEvent.hpp"
 
@@ -84,6 +85,7 @@ public:
     const cortex::etl::LiveIngestor*         live_ingestor      = nullptr;
     RateLimiter*                             rate_limiter       = nullptr;
     std::string                              client_ip;
+    const Router*                            router             = nullptr;
 
     // Called from llhttp static callbacks — must remain accessible
     void process_http_request(const std::string& method,
@@ -91,11 +93,15 @@ public:
                                const std::string& headers_raw,
                                const std::string& body);
 
+    // WebSocket upgrade — public so ws_handler can invoke it via ServerContext.
+    void upgrade_to_websocket(const std::string& key, const std::string& game_id);
+
 private:
+    void close();
+
+    // HTTP response — only called from within Connection methods.
     void send_response(int status, const std::string& content_type,
                        const std::string& body, bool keep_alive = false);
-    void upgrade_to_websocket(const std::string& key, const std::string& game_id);
-    void close();
 
     // WebSocket helpers
     void  ws_parse_incoming();
@@ -104,7 +110,7 @@ private:
 
 public:
     // ── Implementation fields ────────────────────────────────────────────
-    // Accessible to llhttp static callbacks in HttpServer.cpp.
+    // Accessible to llhttp static callbacks in Connection.cpp.
     // Not part of the external API.
 
     int         fd_;
@@ -170,12 +176,16 @@ public:
 private:
     void accept_connection();
     void reap_closed();
+    void register_routes();
 
     Config                                   cfg_;
     cortex::stream::StatAccumulator&         accumulator_;
     std::unique_ptr<IOPoller>                poller_;
     int                                      listen_fd_ = -1;
     std::atomic<bool>                        running_{false};
+
+    // Route dispatcher
+    Router                                   router_;
 
     // Connections keyed by fd
     mutable std::mutex                              conn_mu_;

@@ -149,8 +149,18 @@ endif()
 
 add_library(cortex_serving_lib STATIC
     ${POLLER_SRC}
+    src/serving/Connection.cpp
     src/serving/HttpServer.cpp
+    src/serving/Router.cpp
     src/serving/RedisCache.cpp
+    src/serving/handlers/health_handler.cpp
+    src/serving/handlers/stats_handler.cpp
+    src/serving/handlers/games_handler.cpp
+    src/serving/handlers/search_handler.cpp
+    src/serving/handlers/analytics_handler.cpp
+    src/serving/handlers/metrics_handler.cpp
+    src/serving/handlers/ws_handler.cpp
+    src/serving/handlers/static_handler.cpp
 )
 target_include_directories(cortex_serving_lib PUBLIC
     ${CMAKE_SOURCE_DIR}/include
@@ -179,6 +189,7 @@ add_executable(cortex_tests
     tests/unit/test_bulk_inserter.cpp
     tests/unit/test_stream.cpp
     tests/unit/test_serving.cpp
+    tests/unit/test_router.cpp
 )
 target_compile_definitions(cortex_tests PRIVATE
     CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"

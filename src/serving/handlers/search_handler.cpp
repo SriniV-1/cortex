@@ -2,13 +2,15 @@
 #include "serving/HttpUtils.hpp"
 #include "common/Logger.hpp"
 
+#include <nlohmann/json.hpp>
 #include <pqxx/pqxx>
 #include <algorithm>
-#include <sstream>
+
+using json = nlohmann::json;
 
 namespace cortex::serving::handlers {
 
-// ── /api/players/search ─────────────────────────────────────────────────────
+// -- /api/players/search -----------------------------------------------------
 
 void handle_search_players(Request& req, Response& res, ServerContext& ctx) {
     if (!ctx.db) {
@@ -50,37 +52,36 @@ void handle_search_players(Request& req, Response& res, ServerContext& ctx) {
             pqxx::params{query});
         txn.commit();
 
-        std::ostringstream j;
-        j << "{\"query\":" << json_str(query) << ",\"players\":[";
+        json players = json::array();
         for (pqxx::result::size_type i = 0; i < r.size(); ++i) {
-            if (i > 0) j << ",";
-            j << "{"
-              << "\"player_id\":" << r[i]["player_id"].as<int>() << ","
-              << "\"name\":"      << json_str(r[i]["name"].as<std::string>()) << ","
-              << "\"team\":"      << json_str(r[i]["team"].as<std::string>("")) << ","
-              << "\"pos\":"       << json_str(r[i]["position"].as<std::string>("")) << ","
-              << "\"games\":"     << r[i]["games"].as<int>(0) << ","
-              << "\"pts\":"       << r[i]["pts"].as<int>(0) << ","
-              << "\"reb\":"       << r[i]["reb"].as<int>(0) << ","
-              << "\"stl\":"       << r[i]["stl"].as<int>(0) << ","
-              << "\"blk\":"       << r[i]["blk"].as<int>(0) << ","
-              << "\"ppg\":"       << r[i]["ppg"].as<double>(0.0) << ","
-              << "\"rpg\":"       << r[i]["rpg"].as<double>(0.0) << ","
-              << "\"spg\":"       << r[i]["spg"].as<double>(0.0) << ","
-              << "\"bpg\":"       << r[i]["bpg"].as<double>(0.0) << ","
-              << "\"fg_pct\":"    << r[i]["fg_pct"].as<double>(0.0) << ","
-              << "\"ft_pct\":"    << r[i]["ft_pct"].as<double>(0.0)
-              << "}";
+            players.push_back({
+                {"player_id", r[i]["player_id"].as<int>()},
+                {"name",      r[i]["name"].as<std::string>()},
+                {"team",      r[i]["team"].as<std::string>("")},
+                {"pos",       r[i]["position"].as<std::string>("")},
+                {"games",     r[i]["games"].as<int>(0)},
+                {"pts",       r[i]["pts"].as<int>(0)},
+                {"reb",       r[i]["reb"].as<int>(0)},
+                {"stl",       r[i]["stl"].as<int>(0)},
+                {"blk",       r[i]["blk"].as<int>(0)},
+                {"ppg",       r[i]["ppg"].as<double>(0.0)},
+                {"rpg",       r[i]["rpg"].as<double>(0.0)},
+                {"spg",       r[i]["spg"].as<double>(0.0)},
+                {"bpg",       r[i]["bpg"].as<double>(0.0)},
+                {"fg_pct",    r[i]["fg_pct"].as<double>(0.0)},
+                {"ft_pct",    r[i]["ft_pct"].as<double>(0.0)}
+            });
         }
-        j << "]}";
-        res.json(j.str());
+
+        json j = {{"query", query}, {"players", std::move(players)}};
+        res.json(j.dump());
     } catch (const std::exception& e) {
         log->error("player search DB error: {}", e.what());
         res.json(R"({"error":"db error"})", 500);
     }
 }
 
-// ── /api/games/search ───────────────────────────────────────────────────────
+// -- /api/games/search -------------------------------------------------------
 
 void handle_search_games(Request& req, Response& res, ServerContext& ctx) {
     if (!ctx.db) {
@@ -113,32 +114,31 @@ void handle_search_games(Request& req, Response& res, ServerContext& ctx) {
             pqxx::params{team});
         txn.commit();
 
-        std::ostringstream j;
-        j << "{\"team\":" << json_str(team) << ",\"games\":[";
+        json games_arr = json::array();
         for (pqxx::result::size_type i = 0; i < r.size(); ++i) {
-            if (i > 0) j << ",";
-            j << "{"
-              << "\"game_id\":"     << json_str(r[i]["game_id"].as<std::string>()) << ","
-              << "\"date\":"        << json_str(r[i]["game_date"].as<std::string>()) << ","
-              << "\"home\":"        << json_str(r[i]["home"].as<std::string>()) << ","
-              << "\"away\":"        << json_str(r[i]["away"].as<std::string>()) << ","
-              << "\"home_name\":"   << json_str(r[i]["home_name"].as<std::string>()) << ","
-              << "\"away_name\":"   << json_str(r[i]["away_name"].as<std::string>()) << ","
-              << "\"home_score\":"  << r[i]["home_score"].as<int>(0) << ","
-              << "\"away_score\":"  << r[i]["away_score"].as<int>(0) << ","
-              << "\"status\":"      << r[i]["status"].as<int>(1) << ","
-              << "\"season_type\":" << json_str(r[i]["season_type"].as<std::string>())
-              << "}";
+            games_arr.push_back({
+                {"game_id",     r[i]["game_id"].as<std::string>()},
+                {"date",        r[i]["game_date"].as<std::string>()},
+                {"home",        r[i]["home"].as<std::string>()},
+                {"away",        r[i]["away"].as<std::string>()},
+                {"home_name",   r[i]["home_name"].as<std::string>()},
+                {"away_name",   r[i]["away_name"].as<std::string>()},
+                {"home_score",  r[i]["home_score"].as<int>(0)},
+                {"away_score",  r[i]["away_score"].as<int>(0)},
+                {"status",      r[i]["status"].as<int>(1)},
+                {"season_type", r[i]["season_type"].as<std::string>()}
+            });
         }
-        j << "]}";
-        res.json(j.str());
+
+        json j = {{"team", team}, {"games", std::move(games_arr)}};
+        res.json(j.dump());
     } catch (const std::exception& e) {
         log->error("games search DB error: {}", e.what());
         res.json(R"({"error":"db error"})", 500);
     }
 }
 
-// ── /api/events/search ──────────────────────────────────────────────────────
+// -- /api/events/search ------------------------------------------------------
 
 void handle_search_events(Request& req, Response& res, ServerContext& ctx) {
     if (!ctx.db) {
@@ -230,29 +230,36 @@ void handle_search_events(Request& req, Response& res, ServerContext& ctx) {
         }
         txn.commit();
 
-        std::ostringstream j;
-        j << "{\"count\":" << r.size() << ",\"events\":[";
+        json events = json::array();
         for (pqxx::result::size_type i = 0; i < r.size(); ++i) {
-            if (i > 0) j << ",";
-            j << "{"
-              << "\"event_id\":"   << r[i]["event_id"].as<int64_t>() << ","
-              << "\"game_id\":"    << json_str(r[i]["game_id"].as<std::string>()) << ","
-              << "\"action_num\":" << r[i]["action_number"].as<int>() << ","
-              << "\"time\":"       << json_str(r[i]["occurred_at"].as<std::string>()) << ","
-              << "\"period\":"     << r[i]["period"].as<int>() << ","
-              << "\"clock\":"      << json_str(r[i]["clock"].as<std::string>("")) << ","
-              << "\"action\":"     << json_str(r[i]["action_type"].as<std::string>()) << ","
-              << "\"sub_type\":"   << json_str(r[i]["sub_type"].as<std::string>("")) << ","
-              << "\"desc\":"       << json_str(r[i]["description"].as<std::string>("")) << ","
-              << "\"player_id\":" ;
-            if (r[i]["player_id"].is_null()) j << "null"; else j << r[i]["player_id"].as<int>();
-            j << ",\"player_name\":" << json_str(r[i]["player_name"].as<std::string>("")) << ","
-              << "\"score_home\":" << r[i]["score_home"].as<int>(0) << ","
-              << "\"score_away\":" << r[i]["score_away"].as<int>(0)
-              << "}";
+            json ev = {
+                {"event_id",    r[i]["event_id"].as<int64_t>()},
+                {"game_id",     r[i]["game_id"].as<std::string>()},
+                {"action_num",  r[i]["action_number"].as<int>()},
+                {"time",        r[i]["occurred_at"].as<std::string>()},
+                {"period",      r[i]["period"].as<int>()},
+                {"clock",       r[i]["clock"].as<std::string>("")},
+                {"action",      r[i]["action_type"].as<std::string>()},
+                {"sub_type",    r[i]["sub_type"].as<std::string>("")},
+                {"desc",        r[i]["description"].as<std::string>("")},
+                {"player_name", r[i]["player_name"].as<std::string>("")},
+                {"score_home",  r[i]["score_home"].as<int>(0)},
+                {"score_away",  r[i]["score_away"].as<int>(0)}
+            };
+            // player_id can be null
+            if (r[i]["player_id"].is_null()) {
+                ev["player_id"] = nullptr;
+            } else {
+                ev["player_id"] = r[i]["player_id"].as<int>();
+            }
+            events.push_back(std::move(ev));
         }
-        j << "]}";
-        res.json(j.str());
+
+        json j = {
+            {"count",  static_cast<int>(r.size())},
+            {"events", std::move(events)}
+        };
+        res.json(j.dump());
     } catch (const std::exception& e) {
         log->error("events search DB error: {}", e.what());
         res.json(R"({"error":"db error"})", 500);

@@ -16,12 +16,20 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
+
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#  include <arm_neon.h>
+#  define CORTEX_NEON 1
+#endif
 
 namespace pqxx { class connection; }
 
 namespace cortex::analytics {
+
+class HNSWIndex;   // forward declaration
 
 // ── Feature vector ─────────────────────────────────────────────────────────
 // 8 normalized floats describing a game state.
@@ -38,6 +46,24 @@ struct alignas(32) GameStateVec {
     float v[8];
 };
 static_assert(sizeof(GameStateVec) == 32, "GameStateVec must be 32 bytes");
+
+// ── Shared L2 squared distance ──────────────────────────────────────────────
+// Used by both brute-force scan and HNSW index.
+inline float l2_dist_sq(const GameStateVec& a, const GameStateVec& b) noexcept {
+#if defined(CORTEX_NEON)
+    float32x4_t d0  = vsubq_f32(vld1q_f32(a.v),     vld1q_f32(b.v));
+    float32x4_t d1  = vsubq_f32(vld1q_f32(a.v + 4), vld1q_f32(b.v + 4));
+    float32x4_t sq  = vfmaq_f32(vmulq_f32(d0, d0), d1, d1);
+    return vaddvq_f32(sq);
+#else
+    float dist = 0.0f;
+    for (int f = 0; f < 8; ++f) {
+        float d = a.v[f] - b.v[f];
+        dist += d * d;
+    }
+    return dist;
+#endif
+}
 
 // Encode raw game fields into a normalized feature vector.
 GameStateVec encode_game_state(int score_home, int score_away,
@@ -61,8 +87,8 @@ struct GameStateMatch {
 // ── GameStateIndex ──────────────────────────────────────────────────────────
 class GameStateIndex {
 public:
-    GameStateIndex() = default;
-    ~GameStateIndex() = default;
+    GameStateIndex();
+    ~GameStateIndex();
 
     // Noncopyable — the flat feature array is large.
     GameStateIndex(const GameStateIndex&)            = delete;
@@ -87,6 +113,10 @@ public:
     // Milliseconds taken to build (set at end of build_from_db).
     double build_ms() const noexcept { return build_ms_; }
 
+    // Set the similarity backend: "brute_force" (default) or "hnsw".
+    void set_similarity_backend(const std::string& backend);
+    const std::string& similarity_backend() const noexcept { return similarity_backend_; }
+
 private:
     // AoS feature storage: vecs_[i].v[0..7] = 8 features for event i.
     // 32-byte alignment enables 2-NEON-load L2 distance computation.
@@ -106,6 +136,10 @@ private:
     size_t N_       = 0;
     double build_ms_= 0.0;
     std::atomic<bool> loaded_{false};
+
+    // Similarity backend: "brute_force" (default) or "hnsw".
+    std::string                   similarity_backend_{"brute_force"};
+    std::unique_ptr<HNSWIndex>    hnsw_index_;
 };
 
 } // namespace cortex::analytics

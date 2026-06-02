@@ -1,14 +1,15 @@
 #include "serving/handlers/games_handler.hpp"
-#include "serving/HttpUtils.hpp"
 #include "etl/LiveIngestor.hpp"
 #include "common/Logger.hpp"
 
+#include <nlohmann/json.hpp>
 #include <pqxx/pqxx>
-#include <sstream>
+
+using json = nlohmann::json;
 
 namespace cortex::serving::handlers {
 
-// ── /api/games/recent ───────────────────────────────────────────────────────
+// -- /api/games/recent -------------------------------------------------------
 
 void handle_games_recent(Request& req, Response& res, ServerContext& ctx) {
     if (!ctx.db) {
@@ -55,31 +56,28 @@ void handle_games_recent(Request& req, Response& res, ServerContext& ctx) {
         }
         txn.commit();
 
-        std::ostringstream j;
-        j << "[";
+        json arr = json::array();
         for (pqxx::result::size_type i = 0; i < r.size(); ++i) {
-            if (i > 0) j << ",";
-            j << "{"
-              << "\"game_id\":"    << json_str(r[i]["game_id"].as<std::string>()) << ","
-              << "\"date\":"       << json_str(r[i]["game_date"].as<std::string>()) << ","
-              << "\"home\":"       << json_str(r[i]["home"].as<std::string>()) << ","
-              << "\"away\":"       << json_str(r[i]["away"].as<std::string>()) << ","
-              << "\"home_name\":"  << json_str(r[i]["home_name"].as<std::string>()) << ","
-              << "\"away_name\":"  << json_str(r[i]["away_name"].as<std::string>()) << ","
-              << "\"home_score\":" << r[i]["home_score"].as<int>(0) << ","
-              << "\"away_score\":" << r[i]["away_score"].as<int>(0) << ","
-              << "\"status\":"     << r[i]["status"].as<int>(1)
-              << "}";
+            arr.push_back({
+                {"game_id",    r[i]["game_id"].as<std::string>()},
+                {"date",       r[i]["game_date"].as<std::string>()},
+                {"home",       r[i]["home"].as<std::string>()},
+                {"away",       r[i]["away"].as<std::string>()},
+                {"home_name",  r[i]["home_name"].as<std::string>()},
+                {"away_name",  r[i]["away_name"].as<std::string>()},
+                {"home_score", r[i]["home_score"].as<int>(0)},
+                {"away_score", r[i]["away_score"].as<int>(0)},
+                {"status",     r[i]["status"].as<int>(1)}
+            });
         }
-        j << "]";
-        res.json(j.str());
+        res.json(arr.dump());
     } catch (const std::exception& e) {
         log->error("games/recent DB error: {}", e.what());
         res.json(R"({"error":"db error"})", 500);
     }
 }
 
-// ── /api/scoreboard ─────────────────────────────────────────────────────────
+// -- /api/scoreboard ---------------------------------------------------------
 
 void handle_scoreboard(Request& /*req*/, Response& res, ServerContext& ctx) {
     if (!ctx.live_ingestor) {
@@ -87,24 +85,23 @@ void handle_scoreboard(Request& /*req*/, Response& res, ServerContext& ctx) {
         return;
     }
     auto games = ctx.live_ingestor->scoreboard_snapshot();
-    std::ostringstream j;
-    j << "{\"games\":[";
-    for (size_t i = 0; i < games.size(); ++i) {
-        if (i > 0) j << ",";
-        const auto& g = games[i];
-        j << "{"
-          << "\"game_id\":"   << json_str(g.game_id) << ","
-          << "\"status\":"    << g.status << ","
-          << "\"home\":"      << json_str(g.home_tricode) << ","
-          << "\"away\":"      << json_str(g.away_tricode) << ","
-          << "\"home_score\":" << g.home_score << ","
-          << "\"away_score\":" << g.away_score << ","
-          << "\"period\":"    << g.period << ","
-          << "\"game_clock\":" << json_str(g.game_clock)
-          << "}";
+
+    json games_arr = json::array();
+    for (const auto& g : games) {
+        games_arr.push_back({
+            {"game_id",    g.game_id},
+            {"status",     g.status},
+            {"home",       g.home_tricode},
+            {"away",       g.away_tricode},
+            {"home_score", g.home_score},
+            {"away_score", g.away_score},
+            {"period",     g.period},
+            {"game_clock", g.game_clock}
+        });
     }
-    j << "]}";
-    res.json(j.str());
+
+    json j = {{"games", std::move(games_arr)}};
+    res.json(j.dump());
 }
 
 } // namespace cortex::serving::handlers

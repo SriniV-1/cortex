@@ -2,12 +2,14 @@
 #include "serving/HttpUtils.hpp"
 #include "common/Logger.hpp"
 
+#include <nlohmann/json.hpp>
 #include <pqxx/pqxx>
-#include <sstream>
+
+using json = nlohmann::json;
 
 namespace cortex::serving::handlers {
 
-// ── /stats/:gameId ──────────────────────────────────────────────────────────
+// -- /stats/:gameId ----------------------------------------------------------
 
 void handle_game_stats(Request& req, Response& res, ServerContext& ctx) {
     std::string game_id = req.param("gameId");
@@ -32,20 +34,20 @@ void handle_game_stats(Request& req, Response& res, ServerContext& ctx) {
     }
 
     auto [home, away] = ctx.accumulator->score(game_id);
-    std::ostringstream j;
-    j << "{\"game_id\":" << json_str(game_id)
-      << ",\"score_home\":" << home
-      << ",\"score_away\":" << away
-      << ",\"events_processed\":" << ctx.accumulator->event_count()
-      << "}";
-    const std::string body = j.str();
+    json j = {
+        {"game_id",          game_id},
+        {"score_home",       home},
+        {"score_away",       away},
+        {"events_processed", ctx.accumulator->event_count()}
+    };
+    std::string body = j.dump();
 
     if (ctx.cache) ctx.cache->set(cache_key, body, std::chrono::seconds{60});
 
     res.json(body);
 }
 
-// ── /players/:playerId/season ───────────────────────────────────────────────
+// -- /players/:playerId/season -----------------------------------------------
 
 void handle_player_season(Request& req, Response& res, ServerContext& ctx) {
     std::string pid_str = req.param("playerId");
@@ -81,28 +83,28 @@ void handle_player_season(Request& req, Response& res, ServerContext& ctx) {
             return;
         }
         auto row = r[0];
-        std::ostringstream j;
-        j << "{\"player_id\":" << player_id
-          << ",\"games\":"     << row["games"].as<int>(0)
-          << ",\"points\":"    << row["pts"].as<int>(0)
-          << ",\"rebounds\":"  << row["reb"].as<int>(0)
-          << ",\"assists\":"   << row["ast"].as<int>(0)
-          << ",\"steals\":"    << row["stl"].as<int>(0)
-          << ",\"blocks\":"    << row["blk"].as<int>(0)
-          << ",\"turnovers\":" << row["to_"].as<int>(0)
-          << ",\"fga\":"       << row["fga"].as<int>(0)
-          << ",\"fgm\":"       << row["fgm"].as<int>(0)
-          << ",\"fta\":"       << row["fta"].as<int>(0)
-          << ",\"ftm\":"       << row["ftm"].as<int>(0)
-          << "}";
-        res.json(j.str());
+        json j = {
+            {"player_id", player_id},
+            {"games",     row["games"].as<int>(0)},
+            {"points",    row["pts"].as<int>(0)},
+            {"rebounds",  row["reb"].as<int>(0)},
+            {"assists",   row["ast"].as<int>(0)},
+            {"steals",    row["stl"].as<int>(0)},
+            {"blocks",    row["blk"].as<int>(0)},
+            {"turnovers", row["to_"].as<int>(0)},
+            {"fga",       row["fga"].as<int>(0)},
+            {"fgm",       row["fgm"].as<int>(0)},
+            {"fta",       row["fta"].as<int>(0)},
+            {"ftm",       row["ftm"].as<int>(0)}
+        };
+        res.json(j.dump());
     } catch (const std::exception& e) {
         log->error("DB error: {}", e.what());
         res.json(R"({"error":"db error"})", 500);
     }
 }
 
-// ── /api/stats ──────────────────────────────────────────────────────────────
+// -- /api/stats --------------------------------------------------------------
 
 void handle_api_stats(Request& /*req*/, Response& res, ServerContext& ctx) {
     if (!ctx.db) {
@@ -118,20 +120,20 @@ void handle_api_stats(Request& /*req*/, Response& res, ServerContext& ctx) {
             "  (SELECT COUNT(*) FROM players)       AS total_players, "
             "  (SELECT COUNT(*) FROM play_events)   AS total_events");
         txn.commit();
-        std::ostringstream j;
-        j << "{"
-          << "\"total_games\":"   << r[0]["total_games"].as<int64_t>(0)   << ","
-          << "\"total_players\":" << r[0]["total_players"].as<int64_t>(0) << ","
-          << "\"total_events\":"  << r[0]["total_events"].as<int64_t>(0)
-          << "}";
-        res.json(j.str());
+
+        json j = {
+            {"total_games",   r[0]["total_games"].as<int64_t>(0)},
+            {"total_players", r[0]["total_players"].as<int64_t>(0)},
+            {"total_events",  r[0]["total_events"].as<int64_t>(0)}
+        };
+        res.json(j.dump());
     } catch (const std::exception& e) {
         log->error("stats DB error: {}", e.what());
         res.json(R"({"error":"db error"})", 500);
     }
 }
 
-// ── /api/leaderboard ────────────────────────────────────────────────────────
+// -- /api/leaderboard --------------------------------------------------------
 
 void handle_leaderboard(Request& req, Response& res, ServerContext& ctx) {
     if (!ctx.db) {
@@ -174,31 +176,30 @@ void handle_leaderboard(Request& req, Response& res, ServerContext& ctx) {
             "ORDER BY " + order_col + " DESC NULLS LAST LIMIT 50");
         txn.commit();
 
-        std::ostringstream j;
-        j << "{\"stat\":" << json_str(stat) << ",\"players\":[";
+        json players = json::array();
         for (pqxx::result::size_type i = 0; i < r.size(); ++i) {
-            if (i > 0) j << ",";
-            j << "{"
-              << "\"rank\":"      << (i+1) << ","
-              << "\"player_id\":" << r[i]["player_id"].as<int>() << ","
-              << "\"name\":"      << json_str(r[i]["name"].as<std::string>()) << ","
-              << "\"team\":"      << json_str(r[i]["team"].as<std::string>()) << ","
-              << "\"pos\":"       << json_str(r[i]["position"].as<std::string>("")) << ","
-              << "\"games\":"     << r[i]["games"].as<int>(0) << ","
-              << "\"pts\":"       << r[i]["pts"].as<int>(0) << ","
-              << "\"reb\":"       << r[i]["reb"].as<int>(0) << ","
-              << "\"stl\":"       << r[i]["stl"].as<int>(0) << ","
-              << "\"blk\":"       << r[i]["blk"].as<int>(0) << ","
-              << "\"ppg\":"       << r[i]["ppg"].as<double>(0.0) << ","
-              << "\"rpg\":"       << r[i]["rpg"].as<double>(0.0) << ","
-              << "\"spg\":"       << r[i]["spg"].as<double>(0.0) << ","
-              << "\"bpg\":"       << r[i]["bpg"].as<double>(0.0) << ","
-              << "\"fg_pct\":"    << r[i]["fg_pct"].as<double>(0.0) << ","
-              << "\"ft_pct\":"    << r[i]["ft_pct"].as<double>(0.0)
-              << "}";
+            players.push_back({
+                {"rank",      static_cast<int>(i + 1)},
+                {"player_id", r[i]["player_id"].as<int>()},
+                {"name",      r[i]["name"].as<std::string>()},
+                {"team",      r[i]["team"].as<std::string>()},
+                {"pos",       r[i]["position"].as<std::string>("")},
+                {"games",     r[i]["games"].as<int>(0)},
+                {"pts",       r[i]["pts"].as<int>(0)},
+                {"reb",       r[i]["reb"].as<int>(0)},
+                {"stl",       r[i]["stl"].as<int>(0)},
+                {"blk",       r[i]["blk"].as<int>(0)},
+                {"ppg",       r[i]["ppg"].as<double>(0.0)},
+                {"rpg",       r[i]["rpg"].as<double>(0.0)},
+                {"spg",       r[i]["spg"].as<double>(0.0)},
+                {"bpg",       r[i]["bpg"].as<double>(0.0)},
+                {"fg_pct",    r[i]["fg_pct"].as<double>(0.0)},
+                {"ft_pct",    r[i]["ft_pct"].as<double>(0.0)}
+            });
         }
-        j << "]}";
-        res.json(j.str());
+
+        json j = {{"stat", stat}, {"players", std::move(players)}};
+        res.json(j.dump());
     } catch (const std::exception& e) {
         log->error("leaderboard DB error: {}", e.what());
         res.json(R"({"error":"db error"})", 500);

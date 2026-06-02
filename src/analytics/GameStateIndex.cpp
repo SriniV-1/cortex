@@ -12,6 +12,7 @@
 //                         threshold to reduce heap operations.
 
 #include "analytics/GameStateIndex.hpp"
+#include "analytics/HNSWIndex.hpp"
 #include "common/Logger.hpp"
 
 #include <pqxx/pqxx>
@@ -21,16 +22,15 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <queue>
 #include <stdexcept>
 #include <utility>
 
-#if defined(__ARM_NEON) || defined(__ARM_NEON__)
-#  include <arm_neon.h>
-#  define CORTEX_NEON 1
-#endif
-
 namespace cortex::analytics {
+
+GameStateIndex::GameStateIndex() = default;
+GameStateIndex::~GameStateIndex() = default;
 
 // ── Feature encoding ────────────────────────────────────────────────────────
 
@@ -220,68 +220,69 @@ void GameStateIndex::build_from_db(pqxx::connection& conn) {
     log->info("GameStateIndex: {} events loaded in {:.1f} s, {:.0f} MB feature store",
               N_, build_ms_ / 1000.0, mb);
 
+    // If HNSW backend is selected, build the graph index after loading vectors.
+    if (similarity_backend_ == "hnsw" && N_ > 0) {
+        log->info("GameStateIndex: building HNSW index over {} vectors…", N_);
+        hnsw_index_ = std::make_unique<HNSWIndex>(/*M=*/16, /*efConstruction=*/200);
+        hnsw_index_->build(vecs_);
+        log->info("GameStateIndex: HNSW index ready (max_level={})", hnsw_index_->max_level());
+    }
+
     loaded_.store(true, std::memory_order_release);
 }
 
-// ── query — SIMD brute-force L2 scan ────────────────────────────────────────
+// ── set_similarity_backend ──────────────────────────────────────────────────
+
+void GameStateIndex::set_similarity_backend(const std::string& backend) {
+    if (backend != "brute_force" && backend != "hnsw") {
+        throw std::invalid_argument(
+            "Unknown similarity_backend: '" + backend + "' (expected 'brute_force' or 'hnsw')");
+    }
+    similarity_backend_ = backend;
+}
+
+// ── query — SIMD brute-force or HNSW ────────────────────────────────────────
 
 std::vector<GameStateMatch> GameStateIndex::query(const GameStateVec& q, int k) const {
     if (!loaded() || N_ == 0) return {};
     k = std::max(1, std::min(k, static_cast<int>(N_)));
 
-    // Max-heap of (dist_sq, index) — we pop the largest to maintain top-K smallest.
-    using HeapEntry = std::pair<float, size_t>;
-    std::priority_queue<HeapEntry> heap;
-    float threshold = std::numeric_limits<float>::max();
+    // Collect (dist_sq, index) pairs from either backend.
+    std::vector<std::pair<float, size_t>> nearest;
 
-#if defined(CORTEX_NEON)
-    // ── ARM NEON path ──────────────────────────────────────────────────────
-    // Each candidate is 32 bytes (8 floats), loaded in two vld1q_f32 ops.
-    // vfmaq_f32 accumulates d0^2 + d1^2 per lane; vaddvq_f32 horizontal-sums.
-    const float32x4_t q0 = vld1q_f32(q.v);       // query features [0..3]
-    const float32x4_t q1 = vld1q_f32(q.v + 4);   // query features [4..7]
+    if (similarity_backend_ == "hnsw" && hnsw_index_) {
+        // ── HNSW approximate search ────────────────────────────────────────
+        nearest = hnsw_index_->search(q, static_cast<size_t>(k));
+    } else {
+        // ── Brute-force scan ───────────────────────────────────────────────
+        using HeapEntry = std::pair<float, size_t>;
+        std::priority_queue<HeapEntry> heap;
+        float threshold = std::numeric_limits<float>::max();
 
-    for (size_t i = 0; i < N_; ++i) {
-        const float* p = vecs_[i].v;
+        for (size_t i = 0; i < N_; ++i) {
+            float dist_sq = l2_dist_sq(q, vecs_[i]);
 
-        float32x4_t d0  = vsubq_f32(vld1q_f32(p),     q0);
-        float32x4_t d1  = vsubq_f32(vld1q_f32(p + 4), q1);
-        float32x4_t sq  = vfmaq_f32(vmulq_f32(d0, d0), d1, d1);  // d0²+d1² per lane
-        float dist_sq   = vaddvq_f32(sq);                          // sum all 4 lanes
-
-        if (dist_sq < threshold || static_cast<int>(heap.size()) < k) {
-            if (static_cast<int>(heap.size()) >= k) heap.pop();
-            heap.push({dist_sq, i});
-            if (static_cast<int>(heap.size()) >= k)
-                threshold = heap.top().first;
+            if (dist_sq < threshold || static_cast<int>(heap.size()) < k) {
+                if (static_cast<int>(heap.size()) >= k) heap.pop();
+                heap.push({dist_sq, i});
+                if (static_cast<int>(heap.size()) >= k)
+                    threshold = heap.top().first;
+            }
         }
+
+        nearest.reserve(heap.size());
+        while (!heap.empty()) {
+            nearest.push_back(heap.top());
+            heap.pop();
+        }
+        std::reverse(nearest.begin(), nearest.end());
     }
 
-#else
-    // ── Scalar fallback (x86 / generic) ───────────────────────────────────
-    for (size_t i = 0; i < N_; ++i) {
-        float dist_sq = 0.0f;
-        for (int f = 0; f < 8; ++f) {
-            float d = vecs_[i].v[f] - q.v[f];
-            dist_sq += d * d;
-        }
-        if (dist_sq < threshold || static_cast<int>(heap.size()) < k) {
-            if (static_cast<int>(heap.size()) >= k) heap.pop();
-            heap.push({dist_sq, i});
-            if (static_cast<int>(heap.size()) >= k)
-                threshold = heap.top().first;
-        }
-    }
-#endif
-
-    // Extract results from heap (ordered worst→best; we'll reverse).
+    // Convert (dist_sq, idx) → GameStateMatch results.
     std::vector<GameStateMatch> results;
-    results.reserve(heap.size());
+    results.reserve(nearest.size());
 
-    while (!heap.empty()) {
-        auto [dist_sq, idx] = heap.top();
-        heap.pop();
-
+    for (auto& [dist_sq, idx] : nearest) {
         const float sim = 1.0f / (1.0f + std::sqrt(dist_sq));
 
         GameStateMatch m;
@@ -299,8 +300,6 @@ std::vector<GameStateMatch> GameStateIndex::query(const GameStateVec& q, int k) 
         results.push_back(std::move(m));
     }
 
-    // Reverse so best match is first (heap was max-heap by dist, so last popped = best).
-    std::reverse(results.begin(), results.end());
     return results;
 }
 

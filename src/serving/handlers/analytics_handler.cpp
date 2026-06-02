@@ -1,15 +1,16 @@
 #include "serving/handlers/analytics_handler.hpp"
-#include "serving/HttpUtils.hpp"
 #include "analytics/GameStateIndex.hpp"
 #include "analytics/EloTracker.hpp"
 
+#include <nlohmann/json.hpp>
 #include <chrono>
-#include <iomanip>
-#include <sstream>
+#include <cmath>
+
+using json = nlohmann::json;
 
 namespace cortex::serving::handlers {
 
-// ── /api/elo ────────────────────────────────────────────────────────────────
+// -- /api/elo ----------------------------------------------------------------
 
 void handle_elo_rankings(Request& /*req*/, Response& res, ServerContext& ctx) {
     if (!ctx.elo_tracker || !ctx.elo_tracker->built()) {
@@ -17,31 +18,30 @@ void handle_elo_rankings(Request& /*req*/, Response& res, ServerContext& ctx) {
         return;
     }
     auto ratings = ctx.elo_tracker->all_ratings();
-    std::ostringstream j;
-    j << "{\"games_processed\":" << ctx.elo_tracker->games_processed()
-      << ",\"build_ms\":" << std::fixed;
-    j.precision(1);
-    j << ctx.elo_tracker->build_ms()
-      << ",\"teams\":[";
+
+    json teams_arr = json::array();
     for (size_t i = 0; i < ratings.size(); ++i) {
-        if (i > 0) j << ",";
         const auto& te = ratings[i];
-        j << "{\"rank\":" << (i + 1)
-          << ",\"team_id\":" << te.team_id
-          << ",\"tricode\":" << json_str(te.tricode)
-          << ",\"rating\":" << std::fixed;
-        j.precision(0);
-        j << te.rating
-          << ",\"games\":" << te.games_played
-          << ",\"wins\":" << te.wins
-          << ",\"losses\":" << te.losses
-          << "}";
+        teams_arr.push_back({
+            {"rank",     static_cast<int>(i + 1)},
+            {"team_id",  te.team_id},
+            {"tricode",  te.tricode},
+            {"rating",   static_cast<int>(std::round(te.rating))},
+            {"games",    te.games_played},
+            {"wins",     te.wins},
+            {"losses",   te.losses}
+        });
     }
-    j << "]}";
-    res.json(j.str());
+
+    json j = {
+        {"games_processed", ctx.elo_tracker->games_processed()},
+        {"build_ms",        std::round(ctx.elo_tracker->build_ms() * 10.0) / 10.0},
+        {"teams",           std::move(teams_arr)}
+    };
+    res.json(j.dump());
 }
 
-// ── /api/elo/history ────────────────────────────────────────────────────────
+// -- /api/elo/history --------------------------------------------------------
 
 void handle_elo_history(Request& /*req*/, Response& res, ServerContext& ctx) {
     if (!ctx.elo_tracker || !ctx.elo_tracker->built()) {
@@ -49,37 +49,37 @@ void handle_elo_history(Request& /*req*/, Response& res, ServerContext& ctx) {
         return;
     }
     auto history = ctx.elo_tracker->elo_history();
-    std::ostringstream j;
-    j << "{\"snapshots\":[";
-    for (size_t i = 0; i < history.size(); ++i) {
-        if (i > 0) j << ",";
-        const auto& s = history[i];
-        j << "{\"season\":" << s.season
-          << ",\"tricode\":" << json_str(s.tricode)
-          << ",\"rating\":" << std::fixed;
-        j.precision(0);
-        j << s.rating << "}";
+
+    json snapshots = json::array();
+    for (const auto& s : history) {
+        snapshots.push_back({
+            {"season",  s.season},
+            {"tricode", s.tricode},
+            {"rating",  static_cast<int>(std::round(s.rating))}
+        });
     }
-    j << "]}";
-    res.json(j.str());
+
+    json j = {{"snapshots", std::move(snapshots)}};
+    res.json(j.dump());
 }
 
-// ── /api/index/status ───────────────────────────────────────────────────────
+// -- /api/index/status -------------------------------------------------------
 
 void handle_index_status(Request& /*req*/, Response& res, ServerContext& ctx) {
-    std::ostringstream j;
+    json j;
     if (ctx.game_state_index && ctx.game_state_index->loaded()) {
-        j << "{\"loaded\":true"
-          << ",\"size\":"      << ctx.game_state_index->size()
-          << ",\"build_ms\":"  << static_cast<long long>(ctx.game_state_index->build_ms())
-          << "}";
+        j = {
+            {"loaded",   true},
+            {"size",     ctx.game_state_index->size()},
+            {"build_ms", static_cast<long long>(ctx.game_state_index->build_ms())}
+        };
     } else {
-        j << "{\"loaded\":false,\"size\":0,\"build_ms\":0}";
+        j = {{"loaded", false}, {"size", 0}, {"build_ms", 0}};
     }
-    res.json(j.str());
+    res.json(j.dump());
 }
 
-// ── /api/similar ────────────────────────────────────────────────────────────
+// -- /api/similar ------------------------------------------------------------
 
 void handle_similarity(Request& req, Response& res, ServerContext& ctx) {
     if (!ctx.game_state_index || !ctx.game_state_index->loaded()) {
@@ -103,51 +103,48 @@ void handle_similarity(Request& req, Response& res, ServerContext& ctx) {
     const auto t1      = std::chrono::steady_clock::now();
     const double qms   = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
-    std::ostringstream j;
-    j << "{"
-      << "\"query\":{"
-      << "\"score_home\":"  << score_home << ","
-      << "\"score_away\":"  << score_away << ","
-      << "\"period\":"      << period     << ","
-      << "\"clock\":"       << clock      << ","
-      << "\"momentum\":"    << momentum
-      << "},"
-      << "\"query_ms\":"    << std::fixed;
-    j.precision(2);
-    j << qms << ","
-      << "\"index_size\":"  << ctx.game_state_index->size() << ","
-      << "\"results\":[";
-
+    json results = json::array();
     for (size_t ri = 0; ri < matches.size(); ++ri) {
         const auto& m = matches[ri];
-        if (ri > 0) j << ",";
-        j << "{"
-          << "\"rank\":"       << (ri + 1)          << ","
-          << "\"event_id\":"   << m.event_id        << ","
-          << "\"game_id\":"    << json_str(m.game_id) << ","
-          << "\"home\":"       << json_str(m.home_tricode) << ","
-          << "\"away\":"       << json_str(m.away_tricode) << ","
-          << "\"date\":"       << json_str(m.date)   << ","
-          << "\"score_home\":" << m.score_home       << ","
-          << "\"score_away\":" << m.score_away       << ","
-          << "\"period\":"     << static_cast<int>(m.period) << ","
-          << "\"home_won\":"   << (m.home_won ? "true" : "false") << ","
-          << "\"similarity\":" << std::fixed;
-        j.precision(4);
-        j << m.similarity
-          << "}";
+        results.push_back({
+            {"rank",       static_cast<int>(ri + 1)},
+            {"event_id",   m.event_id},
+            {"game_id",    m.game_id},
+            {"home",       m.home_tricode},
+            {"away",       m.away_tricode},
+            {"date",       m.date},
+            {"score_home", m.score_home},
+            {"score_away", m.score_away},
+            {"period",     static_cast<int>(m.period)},
+            {"home_won",   m.home_won},
+            {"similarity", std::round(m.similarity * 10000.0) / 10000.0}
+        });
     }
-    j << "]}";
+
+    json j = {
+        {"query", {
+            {"score_home", score_home},
+            {"score_away", score_away},
+            {"period",     period},
+            {"clock",      clock},
+            {"momentum",   momentum}
+        }},
+        {"query_ms",   std::round(qms * 100.0) / 100.0},
+        {"index_size", ctx.game_state_index->size()},
+        {"results",    std::move(results)}
+    };
+
+    std::string body = j.dump();
 
     // Cache similar-moments results for 5 minutes
     if (ctx.cache) {
         const std::string ckey = "cortex:similar:" + std::to_string(score_home)
             + ":" + std::to_string(score_away) + ":" + std::to_string(period)
             + ":" + std::to_string(clock);
-        ctx.cache->set(ckey, j.str(), std::chrono::seconds{300});
+        ctx.cache->set(ckey, body, std::chrono::seconds{300});
     }
 
-    res.json(j.str());
+    res.json(body);
 }
 
 } // namespace cortex::serving::handlers

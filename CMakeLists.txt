@@ -48,6 +48,24 @@ pkg_check_modules(SPDLOG REQUIRED IMPORTED_TARGET spdlog)
 pkg_check_modules(SIMDJSON REQUIRED IMPORTED_TARGET simdjson)
 
 find_package(CURL REQUIRED)
+
+# ── FetchContent dependencies ─────────────────────────────────────────────
+include(FetchContent)
+FetchContent_Declare(
+  nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG v3.11.3
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
+FetchContent_Declare(
+  rapidcheck
+  GIT_REPOSITORY https://github.com/emil-e/rapidcheck.git
+  GIT_TAG master
+)
+set(RC_ENABLE_GTEST ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(rapidcheck)
+
 find_package(GTest REQUIRED)
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
@@ -115,6 +133,7 @@ add_library(cortex_analytics_lib STATIC
     src/analytics/WinProbModel.cpp
     src/analytics/GameStateIndex.cpp
     src/analytics/EloTracker.cpp
+    src/analytics/HNSWIndex.cpp
 )
 target_include_directories(cortex_analytics_lib PUBLIC
     ${CMAKE_SOURCE_DIR}/include
@@ -171,6 +190,7 @@ target_link_libraries(cortex_serving_lib PUBLIC
     cortex_common
     cortex_stream_lib
     cortex_etl_lib
+    nlohmann_json::nlohmann_json
     ${HIREDIS_LIB}
     ${LLHTTP_LIB}
     OpenSSL::SSL
@@ -205,6 +225,22 @@ target_link_libraries(cortex_tests PRIVATE
 
 include(GoogleTest)
 gtest_discover_tests(cortex_tests DISCOVERY_TIMEOUT 30)
+
+# ── Property-based tests (RapidCheck)
+add_executable(cortex_property_tests
+    tests/property/test_properties.cpp
+)
+target_link_libraries(cortex_property_tests PRIVATE
+    cortex_stream_lib
+    cortex_analytics_lib
+    cortex_serving_lib
+    cortex_etl_lib
+    GTest::gtest
+    GTest::gtest_main
+    rapidcheck
+    rapidcheck_gtest
+)
+gtest_discover_tests(cortex_property_tests DISCOVERY_TIMEOUT 60)
 
 # ── Integration tests (require DB — skipped unless CORTEX_RUN_INTEGRATION_TESTS=1)
 add_executable(cortex_integration_tests

@@ -15,6 +15,7 @@ struct Request {
     std::string headers_raw;
     std::string body;
     std::string client_ip;
+    std::string trace_id;           // UUID v4 request trace ID
 
     // Convenience: get a query param with fallback.
     std::string query(const std::string& key,

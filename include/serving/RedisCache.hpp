@@ -5,6 +5,8 @@
 // Redis is used as a read-through cache: if a key is absent, caller computes
 // the value and stores it with a TTL.
 
+#include "serving/ICache.hpp"
+
 #include <string>
 #include <optional>
 #include <chrono>
@@ -13,22 +15,23 @@ struct redisContext;
 
 namespace cortex::serving {
 
-class RedisCache {
+class RedisCache : public ICache {
 public:
     explicit RedisCache(const std::string& host = "127.0.0.1", int port = 6379);
-    ~RedisCache();
+    ~RedisCache() override;
 
-    // Returns the cached value for key, or nullopt if absent / error.
-    std::optional<std::string> get(const std::string& key) const;
+    // ICache interface
+    std::optional<std::string> get(const std::string& key) override;
 
-    // Set key → value with a TTL. Returns false on error.
-    bool set(const std::string& key, const std::string& value,
-             std::chrono::seconds ttl = std::chrono::seconds{60});
+    void set(const std::string& key, const std::string& value, int ttl_sec = 60) override;
 
-    // Invalidate a key.
-    void del(const std::string& key);
+    void del(const std::string& key) override;
 
-    bool connected() const noexcept { return ctx_ != nullptr; }
+    bool connected() const noexcept override { return ctx_ != nullptr; }
+
+    // Legacy overload accepting chrono::seconds (delegates to ICache::set).
+    bool set_with_status(const std::string& key, const std::string& value,
+                         std::chrono::seconds ttl = std::chrono::seconds{60});
 
 private:
     redisContext* ctx_ = nullptr;

@@ -141,7 +141,7 @@ void handle_similarity(Request& req, Response& res, ServerContext& ctx) {
         const std::string ckey = "cortex:similar:" + std::to_string(score_home)
             + ":" + std::to_string(score_away) + ":" + std::to_string(period)
             + ":" + std::to_string(clock);
-        ctx.cache->set(ckey, body, std::chrono::seconds{300});
+        ctx.cache->set(ckey, body, 300);
     }
 
     res.json(body);

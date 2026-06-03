@@ -31,6 +31,7 @@
 namespace cortex::analytics { class GameStateIndex; class EloTracker; }
 namespace cortex::etl { class LiveIngestor; }
 
+#include <chrono>
 #include <string>
 #include <memory>
 #include <functional>
@@ -78,7 +79,7 @@ public:
     // Injected dependencies — set by HttpServer before registering with poller
     cortex::stream::StatAccumulator*         accumulator        = nullptr;
     pqxx::connection*                        db_conn            = nullptr;
-    RedisCache*                              cache              = nullptr;
+    ICache*                                  cache              = nullptr;
     std::string                              www_root;
     const cortex::analytics::GameStateIndex* game_state_index   = nullptr;
     const cortex::analytics::EloTracker*    elo_tracker        = nullptr;
@@ -133,6 +134,12 @@ public:
     std::string cur_header_field_;
     std::string cur_header_value_;
     bool        headers_complete_ = false;
+
+    // Per-request trace state (set at top of process_http_request)
+    std::string                                  current_trace_id_;
+    std::string                                  current_method_;
+    std::string                                  current_path_;
+    std::chrono::steady_clock::time_point        request_start_;
 
     // WebSocket
     std::string             subscribed_game_;

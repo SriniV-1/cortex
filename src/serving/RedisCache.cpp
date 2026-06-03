@@ -23,7 +23,7 @@ RedisCache::~RedisCache() {
     if (ctx_) { ::redisFree(ctx_); ctx_ = nullptr; }
 }
 
-std::optional<std::string> RedisCache::get(const std::string& key) const {
+std::optional<std::string> RedisCache::get(const std::string& key) {
     if (!ctx_) return std::nullopt;
     auto* reply = static_cast<redisReply*>(
         ::redisCommand(ctx_, "GET %b", key.data(), key.size()));
@@ -35,8 +35,19 @@ std::optional<std::string> RedisCache::get(const std::string& key) const {
     return result;
 }
 
-bool RedisCache::set(const std::string& key, const std::string& value,
-                     std::chrono::seconds ttl) {
+void RedisCache::set(const std::string& key, const std::string& value,
+                     int ttl_sec) {
+    if (!ctx_) return;
+    auto* reply = static_cast<redisReply*>(
+        ::redisCommand(ctx_, "SET %b %b EX %lld",
+                       key.data(),   key.size(),
+                       value.data(), value.size(),
+                       static_cast<long long>(ttl_sec)));
+    if (reply) ::freeReplyObject(reply);
+}
+
+bool RedisCache::set_with_status(const std::string& key, const std::string& value,
+                                 std::chrono::seconds ttl) {
     if (!ctx_) return false;
     auto* reply = static_cast<redisReply*>(
         ::redisCommand(ctx_, "SET %b %b EX %lld",

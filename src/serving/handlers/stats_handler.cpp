@@ -42,7 +42,7 @@ void handle_game_stats(Request& req, Response& res, ServerContext& ctx) {
     };
     std::string body = j.dump();
 
-    if (ctx.cache) ctx.cache->set(cache_key, body, std::chrono::seconds{60});
+    if (ctx.cache) ctx.cache->set(cache_key, body, 60);
 
     res.json(body);
 }

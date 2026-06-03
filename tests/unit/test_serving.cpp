@@ -251,7 +251,7 @@ TEST(RedisCache, ConnectAndBasicOps) {
         GTEST_SKIP() << "Redis not available";
     }
 
-    EXPECT_TRUE(cache.set("cortex_test_key", "hello", std::chrono::seconds{5}));
+    EXPECT_TRUE(cache.set_with_status("cortex_test_key", "hello", std::chrono::seconds{5}));
     auto val = cache.get("cortex_test_key");
     ASSERT_TRUE(val.has_value());
     EXPECT_EQ(*val, "hello");

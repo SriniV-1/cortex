@@ -1,8 +1,8 @@
 #pragma once
 // ServerContext — shared dependencies injected into route handlers.
 
+#include "serving/ICache.hpp"
 #include "serving/RateLimiter.hpp"
-#include "serving/RedisCache.hpp"
 #include "stream/StatAccumulator.hpp"
 
 // Forward declarations to avoid pulling heavy headers.
@@ -18,7 +18,7 @@ class Connection;
 struct ServerContext {
     cortex::stream::StatAccumulator*         accumulator       = nullptr;
     pqxx::connection*                        db                = nullptr;
-    RedisCache*                              cache             = nullptr;
+    ICache*                                  cache             = nullptr;
     const cortex::analytics::GameStateIndex* game_state_index  = nullptr;
     const cortex::analytics::EloTracker*     elo_tracker       = nullptr;
     const cortex::etl::LiveIngestor*         live_ingestor     = nullptr;

@@ -6,6 +6,9 @@
 #include "serving/ServerContext.hpp"
 #include "serving/handlers/static_handler.hpp"
 #include "common/Logger.hpp"
+#include "common/TraceContext.hpp"
+
+#include <chrono>
 
 #include <llhttp.h>
 
@@ -149,10 +152,18 @@ void Connection::send_response(int status, const std::string& ct,
         << "Content-Type: "   << ct        << "\r\n"
         << "Content-Length: " << body.size() << "\r\n"
         << "Connection: "     << (keep_alive ? "keep-alive" : "close") << "\r\n"
+        << "X-Trace-Id: "    << current_trace_id_ << "\r\n"
         << "\r\n" << body;
     write_buf_ += oss.str();
     if (!keep_alive) close_after_flush_ = true;
     poller_.modify(fd_, IOEvent::Readable | IOEvent::Writable);
+
+    // Log request completion with timing
+    auto elapsed = std::chrono::steady_clock::now() - request_start_;
+    double duration_ms = std::chrono::duration<double, std::milli>(elapsed).count();
+    auto log = cortex::get_logger("http");
+    log->info("{} {} {} {:.2f}ms trace_id={}",
+              current_method_, current_path_, status, duration_ms, current_trace_id_);
 }
 
 // ── HTTP request dispatch via Router ──────────────────────────────────────
@@ -161,8 +172,15 @@ void Connection::process_http_request(const std::string& method,
                                        const std::string& raw_path,
                                        const std::string& headers_raw,
                                        const std::string& body) {
+    // Set up per-request trace context before any early returns
+    auto trace = cortex::TraceContext::create();
+    current_trace_id_ = trace.trace_id;
+    current_method_   = method;
+    current_path_     = raw_path;
+    request_start_    = std::chrono::steady_clock::now();
+
     auto log = cortex::get_logger("http");
-    log->debug("{} {}", method, raw_path);
+    log->debug("{} {} trace_id={}", method, raw_path, current_trace_id_);
 
     // Split path and query string
     std::string path = raw_path;
@@ -209,6 +227,7 @@ void Connection::process_http_request(const std::string& method,
             req.headers_raw  = headers_raw;
             req.body         = body;
             req.client_ip    = client_ip;
+            req.trace_id     = current_trace_id_;
 
             Response res;
             route->handler(req, res, ctx);
@@ -227,10 +246,11 @@ void Connection::process_http_request(const std::string& method,
     // Fallback: static file serving for unmatched GET requests
     if (method == "GET") {
         Request req;
-        req.method = method;
-        req.path   = path;
-        req.full_url = raw_path;
+        req.method       = method;
+        req.path         = path;
+        req.full_url     = raw_path;
         req.query_params = parse_query_string(query_string);
+        req.trace_id     = current_trace_id_;
 
         Response res;
         handlers::handle_static(req, res, ctx);

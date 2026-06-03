@@ -210,6 +210,7 @@ add_executable(cortex_tests
     tests/unit/test_stream.cpp
     tests/unit/test_serving.cpp
     tests/unit/test_router.cpp
+    tests/unit/test_hnsw.cpp
 )
 target_compile_definitions(cortex_tests PRIVATE
     CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
@@ -277,6 +278,19 @@ target_link_libraries(cortex_ws_load PRIVATE cortex_serving_lib)
 # ── Similarity index benchmark ────────────────────────────────────────────
 add_executable(cortex_similarity tests/benchmarks/bench_similarity.cpp)
 target_link_libraries(cortex_similarity PRIVATE cortex_analytics_lib)
+
+# ── Fuzz targets (requires Clang with libFuzzer) ─────────────────────────
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CORTEX_BUILD_FUZZ)
+    add_executable(cortex_fuzz_http tests/fuzz/fuzz_http_parser.cpp)
+    target_compile_options(cortex_fuzz_http PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(cortex_fuzz_http PRIVATE -fsanitize=fuzzer,address)
+    target_link_libraries(cortex_fuzz_http PRIVATE ${LLHTTP_LIB})
+    target_include_directories(cortex_fuzz_http PRIVATE ${LLHTTP_INCLUDE_DIR})
+
+    add_executable(cortex_fuzz_ws tests/fuzz/fuzz_ws_frame.cpp)
+    target_compile_options(cortex_fuzz_ws PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(cortex_fuzz_ws PRIVATE -fsanitize=fuzzer,address)
+endif()
 
 # ── Build info ────────────────────────────────────────────────────────────
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")

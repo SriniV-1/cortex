@@ -1,4 +1,5 @@
 #include "serving/handlers/games_handler.hpp"
+#include "serving/Pagination.hpp"
 #include "etl/LiveIngestor.hpp"
 #include "common/Logger.hpp"
 
@@ -18,46 +19,59 @@ void handle_games_recent(Request& req, Response& res, ServerContext& ctx) {
     }
 
     std::string type_filter = req.query("type");
+    auto page = parse_pagination(req);
     auto log = cortex::get_logger("http");
+
+    // Decode cursor — expects {"game_id": "00223..."}
+    std::string cursor_game_id;
+    if (!page.cursor.empty()) {
+        auto cur = decode_cursor(page.cursor);
+        if (!cur.is_null() && cur.contains("game_id")) {
+            cursor_game_id = cur["game_id"].get<std::string>();
+        }
+    }
+
+    int fetch_limit = page.limit + 1;  // fetch one extra to detect has_more
 
     try {
         pqxx::work txn(*ctx.db);
         pqxx::result r;
 
+        std::string base_sql =
+            "SELECT g.game_id, g.game_date::text, g.home_score, g.away_score, g.status, "
+            "       ht.tricode AS home, at.tricode AS away, "
+            "       ht.full_name AS home_name, at.full_name AS away_name "
+            "FROM games g "
+            "JOIN teams ht ON ht.team_id = g.home_team_id "
+            "JOIN teams at ON at.team_id = g.away_team_id ";
+
+        std::string where_clause;
         if (type_filter == "regular") {
-            r = txn.exec(
-                "SELECT g.game_id, g.game_date::text, g.home_score, g.away_score, g.status, "
-                "       ht.tricode AS home, at.tricode AS away, "
-                "       ht.full_name AS home_name, at.full_name AS away_name "
-                "FROM games g "
-                "JOIN teams ht ON ht.team_id = g.home_team_id "
-                "JOIN teams at ON at.team_id = g.away_team_id "
-                "WHERE g.season_type = 'Regular Season' "
-                "ORDER BY g.game_date DESC, g.game_id DESC LIMIT 20");
+            where_clause = "WHERE g.season_type = 'Regular Season' ";
         } else if (type_filter == "playoffs") {
+            where_clause = "WHERE g.season_type = 'Playoffs' ";
+        }
+
+        std::string order_clause = "ORDER BY g.game_date DESC, g.game_id DESC ";
+
+        if (!cursor_game_id.empty()) {
+            std::string cursor_cond = (where_clause.empty() ? "WHERE " : "AND ") +
+                std::string("g.game_id < $1 ");
             r = txn.exec(
-                "SELECT g.game_id, g.game_date::text, g.home_score, g.away_score, g.status, "
-                "       ht.tricode AS home, at.tricode AS away, "
-                "       ht.full_name AS home_name, at.full_name AS away_name "
-                "FROM games g "
-                "JOIN teams ht ON ht.team_id = g.home_team_id "
-                "JOIN teams at ON at.team_id = g.away_team_id "
-                "WHERE g.season_type = 'Playoffs' "
-                "ORDER BY g.game_date DESC, g.game_id DESC LIMIT 20");
+                base_sql + where_clause + cursor_cond + order_clause + "LIMIT $2",
+                pqxx::params{cursor_game_id, fetch_limit});
         } else {
             r = txn.exec(
-                "SELECT g.game_id, g.game_date::text, g.home_score, g.away_score, g.status, "
-                "       ht.tricode AS home, at.tricode AS away, "
-                "       ht.full_name AS home_name, at.full_name AS away_name "
-                "FROM games g "
-                "JOIN teams ht ON ht.team_id = g.home_team_id "
-                "JOIN teams at ON at.team_id = g.away_team_id "
-                "ORDER BY g.game_date DESC, g.game_id DESC LIMIT 20");
+                base_sql + where_clause + order_clause + "LIMIT $1",
+                pqxx::params{fetch_limit});
         }
         txn.commit();
 
+        bool has_more = static_cast<int>(r.size()) > page.limit;
+        int return_count = has_more ? page.limit : static_cast<int>(r.size());
+
         json arr = json::array();
-        for (pqxx::result::size_type i = 0; i < r.size(); ++i) {
+        for (int i = 0; i < return_count; ++i) {
             arr.push_back({
                 {"game_id",    r[i]["game_id"].as<std::string>()},
                 {"date",       r[i]["game_date"].as<std::string>()},
@@ -70,7 +84,14 @@ void handle_games_recent(Request& req, Response& res, ServerContext& ctx) {
                 {"status",     r[i]["status"].as<int>(1)}
             });
         }
-        res.json(arr.dump());
+
+        std::string next_cursor;
+        if (has_more && return_count > 0) {
+            next_cursor = encode_cursor(
+                json{{"game_id", r[return_count - 1]["game_id"].as<std::string>()}});
+        }
+
+        res.json(paginated_response(arr, next_cursor, has_more).dump());
     } catch (const std::exception& e) {
         log->error("games/recent DB error: {}", e.what());
         res.json(R"({"error":"db error"})", 500);

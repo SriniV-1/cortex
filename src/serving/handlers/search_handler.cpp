@@ -1,4 +1,5 @@
 #include "serving/handlers/search_handler.hpp"
+#include "serving/Pagination.hpp"
 #include "serving/HttpUtils.hpp"
 #include "common/Logger.hpp"
 
@@ -25,10 +26,26 @@ void handle_search_players(Request& req, Response& res, ServerContext& ctx) {
         return;
     }
 
+    auto page = parse_pagination(req);
+    int fetch_limit = page.limit + 1;
+
+    // Decode cursor — expects {"pts": N, "player_id": M}
+    int cursor_pts = -1;
+    int cursor_player_id = -1;
+    if (!page.cursor.empty()) {
+        auto cur = decode_cursor(page.cursor);
+        if (!cur.is_null() && cur.contains("pts") && cur.contains("player_id")) {
+            cursor_pts = cur["pts"].get<int>();
+            cursor_player_id = cur["player_id"].get<int>();
+        }
+    }
+
     auto log = cortex::get_logger("http");
     try {
         pqxx::work txn(*ctx.db);
-        auto r = txn.exec(
+        pqxx::result r;
+
+        std::string base_sql =
             "SELECT p.player_id, p.first_name || ' ' || p.last_name AS name, "
             "       t.tricode AS team, COALESCE(p.position, '') AS position, "
             "       COALESCE(SUM(pgs.points), 0) AS pts, "
@@ -46,14 +63,29 @@ void handle_search_players(Request& req, Response& res, ServerContext& ctx) {
             "LEFT JOIN teams t ON t.team_id = p.team_id "
             "LEFT JOIN player_game_stats pgs ON pgs.player_id = p.player_id "
             "WHERE (p.first_name || ' ' || p.last_name) ILIKE '%' || $1 || '%' "
-            "GROUP BY p.player_id, name, t.tricode, p.position "
-            "ORDER BY COALESCE(SUM(pgs.points), 0) DESC "
-            "LIMIT 25",
-            pqxx::params{query});
+            "GROUP BY p.player_id, name, t.tricode, p.position ";
+
+        if (cursor_pts >= 0 && cursor_player_id >= 0) {
+            r = txn.exec(
+                base_sql +
+                "HAVING (COALESCE(SUM(pgs.points), 0), p.player_id) < ($2, $3) "
+                "ORDER BY COALESCE(SUM(pgs.points), 0) DESC, p.player_id DESC "
+                "LIMIT $4",
+                pqxx::params{query, cursor_pts, cursor_player_id, fetch_limit});
+        } else {
+            r = txn.exec(
+                base_sql +
+                "ORDER BY COALESCE(SUM(pgs.points), 0) DESC, p.player_id DESC "
+                "LIMIT $2",
+                pqxx::params{query, fetch_limit});
+        }
         txn.commit();
 
+        bool has_more = static_cast<int>(r.size()) > page.limit;
+        int return_count = has_more ? page.limit : static_cast<int>(r.size());
+
         json players = json::array();
-        for (pqxx::result::size_type i = 0; i < r.size(); ++i) {
+        for (int i = 0; i < return_count; ++i) {
             players.push_back({
                 {"player_id", r[i]["player_id"].as<int>()},
                 {"name",      r[i]["name"].as<std::string>()},
@@ -73,7 +105,16 @@ void handle_search_players(Request& req, Response& res, ServerContext& ctx) {
             });
         }
 
-        json j = {{"query", query}, {"players", std::move(players)}};
+        std::string next_cursor;
+        if (has_more && return_count > 0) {
+            next_cursor = encode_cursor(json{
+                {"pts",       r[return_count - 1]["pts"].as<int>(0)},
+                {"player_id", r[return_count - 1]["player_id"].as<int>()}
+            });
+        }
+
+        json j = paginated_response(players, next_cursor, has_more);
+        j["query"] = query;
         res.json(j.dump());
     } catch (const std::exception& e) {
         log->error("player search DB error: {}", e.what());
@@ -97,11 +138,25 @@ void handle_search_games(Request& req, Response& res, ServerContext& ctx) {
     }
 
     std::transform(team.begin(), team.end(), team.begin(), ::toupper);
+    auto page = parse_pagination(req);
+    int fetch_limit = page.limit + 1;
+
+    // Decode cursor — expects {"game_id": "00223..."}
+    std::string cursor_game_id;
+    if (!page.cursor.empty()) {
+        auto cur = decode_cursor(page.cursor);
+        if (!cur.is_null() && cur.contains("game_id")) {
+            cursor_game_id = cur["game_id"].get<std::string>();
+        }
+    }
+
     auto log = cortex::get_logger("http");
 
     try {
         pqxx::work txn(*ctx.db);
-        auto r = txn.exec(
+        pqxx::result r;
+
+        std::string sql =
             "SELECT g.game_id, g.game_date::text, g.home_score, g.away_score, "
             "       g.status, g.season_type, "
             "       ht.tricode AS home, at.tricode AS away, "
@@ -109,13 +164,25 @@ void handle_search_games(Request& req, Response& res, ServerContext& ctx) {
             "FROM games g "
             "JOIN teams ht ON ht.team_id = g.home_team_id "
             "JOIN teams at ON at.team_id = g.away_team_id "
-            "WHERE ht.tricode = $1 OR at.tricode = $1 "
-            "ORDER BY g.game_date DESC, g.game_id DESC LIMIT 50",
-            pqxx::params{team});
+            "WHERE (ht.tricode = $1 OR at.tricode = $1) ";
+
+        if (!cursor_game_id.empty()) {
+            r = txn.exec(
+                sql + "AND g.game_id < $2 "
+                "ORDER BY g.game_date DESC, g.game_id DESC LIMIT $3",
+                pqxx::params{team, cursor_game_id, fetch_limit});
+        } else {
+            r = txn.exec(
+                sql + "ORDER BY g.game_date DESC, g.game_id DESC LIMIT $2",
+                pqxx::params{team, fetch_limit});
+        }
         txn.commit();
 
+        bool has_more = static_cast<int>(r.size()) > page.limit;
+        int return_count = has_more ? page.limit : static_cast<int>(r.size());
+
         json games_arr = json::array();
-        for (pqxx::result::size_type i = 0; i < r.size(); ++i) {
+        for (int i = 0; i < return_count; ++i) {
             games_arr.push_back({
                 {"game_id",     r[i]["game_id"].as<std::string>()},
                 {"date",        r[i]["game_date"].as<std::string>()},
@@ -130,7 +197,14 @@ void handle_search_games(Request& req, Response& res, ServerContext& ctx) {
             });
         }
 
-        json j = {{"team", team}, {"games", std::move(games_arr)}};
+        std::string next_cursor;
+        if (has_more && return_count > 0) {
+            next_cursor = encode_cursor(
+                json{{"game_id", r[return_count - 1]["game_id"].as<std::string>()}});
+        }
+
+        json j = paginated_response(games_arr, next_cursor, has_more);
+        j["team"] = team;
         res.json(j.dump());
     } catch (const std::exception& e) {
         log->error("games search DB error: {}", e.what());

@@ -73,11 +73,12 @@ TEST(HandlerTest, HealthReturnsOk) {
     handle_health(req, res, ctx);
 
     EXPECT_TRUE(res.handled);
-    EXPECT_EQ(res.status_code, 200);
+    // With no deps injected, health returns 503 "degraded"
+    EXPECT_EQ(res.status_code, 503);
 
     auto j = json::parse(res.body);
-    EXPECT_EQ(j["status"], "ok");
-    EXPECT_EQ(j["service"], "cortex");
+    EXPECT_EQ(j["status"], "degraded");
+    EXPECT_TRUE(j.contains("checks"));
 }
 
 // ── Game stats handler — cache miss path ──────────────────────────────────

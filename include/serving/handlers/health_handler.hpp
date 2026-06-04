@@ -5,4 +5,5 @@
 
 namespace cortex::serving::handlers {
 void handle_health(Request& req, Response& res, ServerContext& ctx);
+void handle_ready(Request& req, Response& res, ServerContext& ctx);
 } // namespace cortex::serving::handlers

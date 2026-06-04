@@ -49,6 +49,7 @@ static void set_tcp_nodelay(int fd) {
 void HttpServer::register_routes() {
     using namespace cortex::serving::handlers;
     router_.add("GET", "/health",                     handle_health);
+    router_.add("GET", "/ready",                      handle_ready);
     router_.add("GET", "/metrics",                    handle_metrics);
     router_.add("GET", "/stats/:gameId",              handle_game_stats);
     router_.add("GET", "/players/:playerId/season",   handle_player_season);
@@ -136,6 +137,7 @@ void HttpServer::accept_connection() {
         conn->elo_tracker       = cfg_.elo_tracker;
         conn->live_ingestor     = cfg_.live_ingestor;
         conn->rate_limiter      = &rate_limiter_;
+        conn->redis_circuit_breaker = &cache_->circuit_breaker();
         conn->router            = &router_;
         if (peer.ss_family == AF_INET) {
             char ip[INET_ADDRSTRLEN]{};

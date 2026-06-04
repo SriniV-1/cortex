@@ -159,8 +159,10 @@ TEST_F(HttpServerTest, HealthEndpoint) {
     std::string resp = recv_response(fd);
     ::close(fd);
 
-    EXPECT_NE(resp.find("200"), std::string::npos);
-    EXPECT_NE(resp.find("ok"), std::string::npos);
+    // Health endpoint returns 200 "healthy" or 503 "degraded" depending on deps
+    EXPECT_TRUE(resp.find("200") != std::string::npos ||
+                resp.find("503") != std::string::npos);
+    EXPECT_TRUE(resp.find("checks") != std::string::npos);
 }
 
 TEST_F(HttpServerTest, StatsEndpoint) {

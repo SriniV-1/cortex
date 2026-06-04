@@ -25,9 +25,11 @@ RedisCache::~RedisCache() {
 
 std::optional<std::string> RedisCache::get(const std::string& key) {
     if (!ctx_) return std::nullopt;
+    if (!breaker_.allow_request()) return std::nullopt;
     auto* reply = static_cast<redisReply*>(
         ::redisCommand(ctx_, "GET %b", key.data(), key.size()));
-    if (!reply) { return std::nullopt; }
+    if (!reply) { breaker_.record_failure(); return std::nullopt; }
+    breaker_.record_success();
     std::optional<std::string> result;
     if (reply->type == REDIS_REPLY_STRING)
         result = std::string(reply->str, reply->len);
@@ -38,32 +40,41 @@ std::optional<std::string> RedisCache::get(const std::string& key) {
 void RedisCache::set(const std::string& key, const std::string& value,
                      int ttl_sec) {
     if (!ctx_) return;
+    if (!breaker_.allow_request()) return;
     auto* reply = static_cast<redisReply*>(
         ::redisCommand(ctx_, "SET %b %b EX %lld",
                        key.data(),   key.size(),
                        value.data(), value.size(),
                        static_cast<long long>(ttl_sec)));
-    if (reply) ::freeReplyObject(reply);
+    if (!reply) { breaker_.record_failure(); return; }
+    breaker_.record_success();
+    ::freeReplyObject(reply);
 }
 
 bool RedisCache::set_with_status(const std::string& key, const std::string& value,
                                  std::chrono::seconds ttl) {
     if (!ctx_) return false;
+    if (!breaker_.allow_request()) return false;
     auto* reply = static_cast<redisReply*>(
         ::redisCommand(ctx_, "SET %b %b EX %lld",
                        key.data(),   key.size(),
                        value.data(), value.size(),
                        static_cast<long long>(ttl.count())));
-    bool ok = reply && reply->type == REDIS_REPLY_STATUS;
-    if (reply) ::freeReplyObject(reply);
+    if (!reply) { breaker_.record_failure(); return false; }
+    breaker_.record_success();
+    bool ok = reply->type == REDIS_REPLY_STATUS;
+    ::freeReplyObject(reply);
     return ok;
 }
 
 void RedisCache::del(const std::string& key) {
     if (!ctx_) return;
+    if (!breaker_.allow_request()) return;
     auto* reply = static_cast<redisReply*>(
         ::redisCommand(ctx_, "DEL %b", key.data(), key.size()));
-    if (reply) ::freeReplyObject(reply);
+    if (!reply) { breaker_.record_failure(); return; }
+    breaker_.record_success();
+    ::freeReplyObject(reply);
 }
 
 } // namespace cortex::serving

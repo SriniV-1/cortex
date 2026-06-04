@@ -200,6 +200,7 @@ void Connection::process_http_request(const std::string& method,
     ctx.elo_tracker       = elo_tracker;
     ctx.live_ingestor     = live_ingestor;
     ctx.rate_limiter      = rate_limiter;
+    ctx.redis_circuit_breaker = redis_circuit_breaker;
     ctx.www_root          = www_root;
     ctx.connection        = this;
 

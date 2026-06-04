@@ -1,6 +1,7 @@
 #pragma once
 // ServerContext — shared dependencies injected into route handlers.
 
+#include "serving/CircuitBreaker.hpp"
 #include "serving/ICache.hpp"
 #include "serving/RateLimiter.hpp"
 #include "stream/StatAccumulator.hpp"
@@ -23,6 +24,7 @@ struct ServerContext {
     const cortex::analytics::EloTracker*     elo_tracker       = nullptr;
     const cortex::etl::LiveIngestor*         live_ingestor     = nullptr;
     RateLimiter*                             rate_limiter      = nullptr;
+    CircuitBreaker*                          redis_circuit_breaker = nullptr;
     std::string                              www_root;
 
     // For WebSocket upgrade, the handler needs direct Connection access.

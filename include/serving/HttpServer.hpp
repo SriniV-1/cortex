@@ -85,6 +85,7 @@ public:
     const cortex::analytics::EloTracker*    elo_tracker        = nullptr;
     const cortex::etl::LiveIngestor*         live_ingestor      = nullptr;
     RateLimiter*                             rate_limiter       = nullptr;
+    CircuitBreaker*                          redis_circuit_breaker = nullptr;
     std::string                              client_ip;
     const Router*                            router             = nullptr;
 

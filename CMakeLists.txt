@@ -213,6 +213,7 @@ add_executable(cortex_tests
     tests/unit/test_hnsw.cpp
     tests/unit/test_handlers.cpp
     tests/unit/test_pagination.cpp
+    tests/unit/test_circuit_breaker.cpp
 )
 target_compile_definitions(cortex_tests PRIVATE
     CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"

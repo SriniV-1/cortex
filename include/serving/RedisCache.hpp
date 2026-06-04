@@ -6,6 +6,7 @@
 // the value and stores it with a TTL.
 
 #include "serving/ICache.hpp"
+#include "serving/CircuitBreaker.hpp"
 
 #include <string>
 #include <optional>
@@ -33,8 +34,13 @@ public:
     bool set_with_status(const std::string& key, const std::string& value,
                          std::chrono::seconds ttl = std::chrono::seconds{60});
 
+    // Circuit breaker accessor for health monitoring.
+    const CircuitBreaker& circuit_breaker() const { return breaker_; }
+    CircuitBreaker&       circuit_breaker()       { return breaker_; }
+
 private:
-    redisContext* ctx_ = nullptr;
+    redisContext*  ctx_     = nullptr;
+    CircuitBreaker breaker_;
 };
 
 } // namespace cortex::serving

@@ -1,4 +1,5 @@
 #include "serving/handlers/analytics_handler.hpp"
+#include "serving/Pagination.hpp"
 #include "analytics/GameStateIndex.hpp"
 #include "analytics/EloTracker.hpp"
 
@@ -12,15 +13,30 @@ namespace cortex::serving::handlers {
 
 // -- /api/elo ----------------------------------------------------------------
 
-void handle_elo_rankings(Request& /*req*/, Response& res, ServerContext& ctx) {
+void handle_elo_rankings(Request& req, Response& res, ServerContext& ctx) {
     if (!ctx.elo_tracker || !ctx.elo_tracker->built()) {
         res.json(R"({"error":"Elo ratings not ready yet — building in background"})", 503);
         return;
     }
     auto ratings = ctx.elo_tracker->all_ratings();
+    auto page = parse_pagination(req);
+
+    // Decode cursor — expects {"rank": N} (1-based index into sorted vector)
+    size_t start_idx = 0;
+    if (!page.cursor.empty()) {
+        auto cur = decode_cursor(page.cursor);
+        if (!cur.is_null() && cur.contains("rank")) {
+            start_idx = static_cast<size_t>(cur["rank"].get<int>());
+        }
+    }
+
+    if (start_idx > ratings.size()) start_idx = ratings.size();
+
+    size_t end_idx = std::min(start_idx + static_cast<size_t>(page.limit), ratings.size());
+    bool has_more = end_idx < ratings.size();
 
     json teams_arr = json::array();
-    for (size_t i = 0; i < ratings.size(); ++i) {
+    for (size_t i = start_idx; i < end_idx; ++i) {
         const auto& te = ratings[i];
         teams_arr.push_back({
             {"rank",     static_cast<int>(i + 1)},
@@ -33,11 +49,14 @@ void handle_elo_rankings(Request& /*req*/, Response& res, ServerContext& ctx) {
         });
     }
 
-    json j = {
-        {"games_processed", ctx.elo_tracker->games_processed()},
-        {"build_ms",        std::round(ctx.elo_tracker->build_ms() * 10.0) / 10.0},
-        {"teams",           std::move(teams_arr)}
-    };
+    std::string next_cursor;
+    if (has_more) {
+        next_cursor = encode_cursor(json{{"rank", static_cast<int>(end_idx)}});
+    }
+
+    json j = paginated_response(teams_arr, next_cursor, has_more);
+    j["games_processed"] = ctx.elo_tracker->games_processed();
+    j["build_ms"]        = std::round(ctx.elo_tracker->build_ms() * 10.0) / 10.0;
     res.json(j.dump());
 }
 

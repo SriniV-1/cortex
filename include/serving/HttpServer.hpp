@@ -87,6 +87,8 @@ public:
     RateLimiter*                             rate_limiter       = nullptr;
     CircuitBreaker*                          redis_circuit_breaker = nullptr;
     std::string                              client_ip;
+    std::string                              jwt_secret;
+    std::string                              api_key;
     const Router*                            router             = nullptr;
 
     // Called from llhttp static callbacks — must remain accessible
@@ -160,6 +162,8 @@ public:
         std::string redis_host  = "127.0.0.1";
         int         redis_port  = 6379;
         std::string www_root    = "www";            // directory for static files
+        std::string jwt_secret;                        // HMAC-SHA256 signing key
+        std::string api_key;                           // shared API key for token issuance
         const cortex::analytics::GameStateIndex* game_state_index = nullptr;
         const cortex::analytics::EloTracker*    elo_tracker      = nullptr;
         const cortex::etl::LiveIngestor*         live_ingestor    = nullptr;

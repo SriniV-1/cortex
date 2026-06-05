@@ -26,6 +26,8 @@ struct ServerContext {
     RateLimiter*                             rate_limiter      = nullptr;
     CircuitBreaker*                          redis_circuit_breaker = nullptr;
     std::string                              www_root;
+    std::string                              jwt_secret;
+    std::string                              api_key;
 
     // For WebSocket upgrade, the handler needs direct Connection access.
     Connection*                              connection        = nullptr;

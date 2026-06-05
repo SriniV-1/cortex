@@ -36,6 +36,32 @@
     --body:      'Poppins', sans-serif;
     --mono:      'JetBrains Mono', monospace;
   }
+  /* ── Dark mode ──────────────────────────────────────────────────────── */
+  [data-theme="dark"] {
+    --bg:        #0f1117;
+    --card:      #1a1d2e;
+    --border:    #2a2e42;
+    --text:      #e8eaf0;
+    --text2:     #a0a8c8;
+    --muted:     #6b7394;
+    --dim:       #4a5070;
+    --orange-lt: #2a1810;
+    --blue-lt:   #101828;
+    --green-lt:  #0a2018;
+    --purple-lt: #1a1530;
+    --teal-lt:   #0a1e22;
+    --shadow:    0 2px 12px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  [data-theme="dark"] body::before {
+    background-image: radial-gradient(circle, rgba(124,77,255,0.06) 1px, transparent 1px);
+  }
+  [data-theme="dark"] .win-prob-banner {
+    background: linear-gradient(135deg, #0f1117, #1a1d2e);
+  }
+  [data-theme="dark"] .elo-modal-backdrop {
+    background: rgba(0,0,0,0.65);
+  }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     background: var(--bg);
@@ -660,6 +686,103 @@
     color: #fff;
     border-color: var(--purple);
   }
+
+  /* ── Toggle buttons (dark mode, auto-refresh) ──────────────────────── */
+  .hdr-toggle {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; color: var(--text2);
+    background: var(--bg); border: 1px solid var(--border);
+    padding: 5px 12px; border-radius: 20px; cursor: pointer;
+    transition: all 0.15s; white-space: nowrap;
+    font-family: var(--body);
+  }
+  .hdr-toggle:hover { border-color: var(--purple); color: var(--purple); }
+  .hdr-toggle.active { background: var(--purple); color: #fff; border-color: var(--purple); }
+
+  /* ── Auto-refresh countdown ────────────────────────────────────────── */
+  .refresh-countdown {
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    color: var(--green); min-width: 22px; text-align: center;
+  }
+  @keyframes spin { from{transform:rotate(0deg)}to{transform:rotate(360deg)} }
+  .spin-icon { display: inline-block; animation: spin 1.5s linear infinite; }
+
+  /* ── Toast notifications ───────────────────────────────────────────── */
+  .toast-container {
+    position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+    display: flex; flex-direction: column; gap: 8px;
+    pointer-events: none; max-width: 360px;
+  }
+  .toast {
+    pointer-events: auto;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 12px 16px;
+    box-shadow: var(--shadow-md); font-size: 13px; color: var(--text);
+    display: flex; align-items: center; gap: 10px;
+    animation: toastIn 0.3s ease, toastOut 0.3s ease 4.7s forwards;
+    border-left: 4px solid var(--red);
+  }
+  .toast.toast-warn { border-left-color: var(--yellow); }
+  .toast.toast-info { border-left-color: var(--blue); }
+  .toast .toast-icon { font-size: 16px; flex-shrink: 0; }
+  .toast .toast-msg { flex: 1; font-weight: 500; line-height: 1.4; }
+  @keyframes toastIn { from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)} }
+  @keyframes toastOut { from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(40px)} }
+
+  /* ── Skeleton loading ──────────────────────────────────────────────── */
+  .skeleton-row { display: flex; gap: 12px; align-items: center; padding: 8px 0; }
+  .skeleton-circle { width: 24px; height: 24px; border-radius: 6px; }
+  .skeleton-line { height: 14px; border-radius: 7px; flex: 1; }
+  .skeleton-circle, .skeleton-line {
+    background: linear-gradient(90deg, var(--bg) 25%, var(--border) 50%, var(--bg) 75%);
+    background-size: 200% 100%; animation: shimmer 1.4s infinite linear;
+  }
+
+  /* ── Mobile breakpoints (375px+) ───────────────────────────────────── */
+  @media (max-width: 480px) {
+    header { padding: 0 12px; height: 50px; }
+    .logo-text { font-size: 18px; letter-spacing: 2px; }
+    .logo-sub { font-size: 9px; }
+    .logo-icon { width: 28px; height: 28px; font-size: 16px; border-radius: 8px; }
+    .header-right { gap: 6px; }
+    .hdr-toggle { padding: 4px 8px; font-size: 11px; gap: 4px; }
+    .status-pill { padding: 4px 8px; font-size: 11px; }
+    #refresh-time { display: none; }
+    main { padding: 12px 10px 40px; gap: 12px; }
+    .chips-row { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat-chip { padding: 12px 14px; }
+    .stat-chip .chip-value { font-size: 28px; }
+    .stat-chip .chip-icon { width: 28px; height: 28px; font-size: 14px; }
+    .two-col { grid-template-columns: 1fr; }
+    .lb-scroll { max-height: 400px; overflow-x: auto; }
+    .lb-table { min-width: 480px; }
+    .games-scroll { max-height: 300px; }
+    .sim-controls { grid-template-columns: 1fr 1fr !important; }
+    .sim-btn-wrap { grid-column: 1 / -1; }
+    .elo-grid { grid-template-columns: 1fr !important; }
+    .chart-row { grid-template-columns: 1fr; }
+    .chart-canvas-wrap { height: 240px; }
+    .live-scoreboard { flex-direction: column; gap: 8px; padding: 16px 12px 8px; }
+    .live-team-name { font-size: 32px; }
+    .live-team-score { font-size: 36px; }
+    .live-vs { padding: 0 12px; }
+    .live-content { grid-template-columns: 1fr; }
+    .live-right { border-left: none; border-top: 1px solid var(--border); }
+    .card { padding: 14px 12px; }
+    .section-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+    .stat-tabs { width: 100%; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+    .sim-header-strip { padding: 14px 16px; }
+    .sim-strip-title { font-size: 16px; }
+    .sim-body { padding: 14px 16px; }
+    .sim-results { grid-template-columns: 1fr; }
+    .elo-modal { max-width: 96vw; }
+    .elo-modal-header { padding: 16px 16px 12px; }
+    .elo-modal-body { padding: 16px; }
+    .elo-modal-stats { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .elo-modal-stat { padding: 10px 12px; }
+    .win-prob-banner { flex-direction: column; gap: 10px; padding: 12px 14px; }
+    .toast-container { left: 10px; right: 10px; bottom: 10px; max-width: none; }
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
@@ -675,6 +798,15 @@
   </div>
   <div class="header-right">
     <span style="font-size:11px;color:var(--muted);font-family:var(--mono)" id="refresh-time">—</span>
+    <button class="hdr-toggle" id="auto-refresh-toggle" title="Toggle 30s auto-refresh">
+      <span id="auto-refresh-icon">⟳</span>
+      <span id="auto-refresh-label">Auto</span>
+      <span class="refresh-countdown" id="refresh-countdown"></span>
+    </button>
+    <button class="hdr-toggle" id="theme-toggle" title="Toggle dark/light mode">
+      <span id="theme-icon">🌙</span>
+      <span id="theme-label">Dark</span>
+    </button>
     <div class="status-pill">
       <div class="dot" id="server-dot"></div>
       <span id="server-status">connecting…</span>
@@ -889,6 +1021,8 @@
   <div id="refresh-note" style="display:none"></div>
 </main>
 
+<div class="toast-container" id="toast-container"></div>
+
 <div class="elo-modal-backdrop" id="elo-modal-backdrop">
   <div class="elo-modal" id="elo-modal"></div>
 </div>
@@ -907,12 +1041,106 @@ function fmt(n) {
 function pad2(n) { return String(n).padStart(2, '0'); }
 function nowStr() { const d = new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; }
 
+// ── Toast notifications ──
+function showToast(msg, type = 'error') {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  const icons = { error: '⚠', warn: '⚡', info: 'ℹ' };
+  const cls = type === 'warn' ? ' toast-warn' : type === 'info' ? ' toast-info' : '';
+  toast.className = 'toast' + cls;
+  toast.innerHTML = `<span class="toast-icon">${icons[type] || icons.error}</span><span class="toast-msg">${msg}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => { if (toast.parentNode) toast.remove(); }, 5000);
+}
+
+// ── Dark/Light mode toggle ──
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('theme', theme);
+  const icon = document.getElementById('theme-icon');
+  const label = document.getElementById('theme-label');
+  const btn = document.getElementById('theme-toggle');
+  if (theme === 'dark') {
+    icon.textContent = '☀'; label.textContent = 'Light'; btn.classList.add('active');
+  } else {
+    icon.textContent = '🌙'; label.textContent = 'Dark'; btn.classList.remove('active');
+  }
+  // Rebuild charts with correct colors after theme switch
+  if (typeof renderTrajectoryChart === 'function' && eloHistoryData) {
+    setTimeout(() => { renderTrajectoryChart(); renderDistributionChart(); }, 50);
+  }
+}
+(function initTheme() {
+  const saved = localStorage.getItem('theme') || 'light';
+  applyTheme(saved);
+})();
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  applyTheme(current === 'dark' ? 'light' : 'dark');
+});
+
+// ── Auto-refresh toggle ──
+let autoRefreshInterval = null;
+let countdownInterval = null;
+let countdownSecs = 30;
+const REFRESH_PERIOD = 30;
+
+function startAutoRefresh() {
+  const btn = document.getElementById('auto-refresh-toggle');
+  const icon = document.getElementById('auto-refresh-icon');
+  const countdownEl = document.getElementById('refresh-countdown');
+  btn.classList.add('active');
+  icon.innerHTML = '<span class="spin-icon">⟳</span>';
+  countdownSecs = REFRESH_PERIOD;
+  countdownEl.textContent = countdownSecs + 's';
+
+  countdownInterval = setInterval(() => {
+    countdownSecs--;
+    if (countdownSecs <= 0) countdownSecs = REFRESH_PERIOD;
+    countdownEl.textContent = countdownSecs + 's';
+  }, 1000);
+
+  autoRefreshInterval = setInterval(() => {
+    countdownSecs = REFRESH_PERIOD;
+    refreshAll();
+  }, REFRESH_PERIOD * 1000);
+}
+
+function stopAutoRefresh() {
+  const btn = document.getElementById('auto-refresh-toggle');
+  const icon = document.getElementById('auto-refresh-icon');
+  const countdownEl = document.getElementById('refresh-countdown');
+  btn.classList.remove('active');
+  icon.textContent = '⟳';
+  countdownEl.textContent = '';
+  clearInterval(autoRefreshInterval);
+  clearInterval(countdownInterval);
+  autoRefreshInterval = null;
+  countdownInterval = null;
+}
+
+document.getElementById('auto-refresh-toggle').addEventListener('click', () => {
+  if (autoRefreshInterval) { stopAutoRefresh(); } else { startAutoRefresh(); }
+});
+
+// ── Skeleton helpers ──
+function skeletonRows(n) {
+  let html = '';
+  for (let i = 0; i < n; i++) {
+    const w = 70 + Math.random() * 30;
+    html += `<div class="skeleton-row"><div class="skeleton-circle skeleton"></div><div class="skeleton-line skeleton" style="width:${w.toFixed(0)}%"></div></div>`;
+  }
+  return html;
+}
+
 // ── Health ──
 async function checkHealth() {
   try {
     const r = await fetch(API + '/health');
     if (r.ok) { document.getElementById('server-dot').className = 'dot live'; document.getElementById('server-status').textContent = 'online'; return true; }
-  } catch {}
+  } catch (e) {
+    showToast('Server health check failed', 'error');
+  }
   document.getElementById('server-dot').className = 'dot';
   document.getElementById('server-status').textContent = 'offline';
   return false;
@@ -920,18 +1148,19 @@ async function checkHealth() {
 
 // ── Stats ──
 async function loadStreamStats() {
-  try { const r = await fetch(API + '/metrics'); if (!r.ok) return; const t = await r.text(); const m = t.match(/cortex_events_processed (\d+)/); if (m) document.getElementById('chip-stream').textContent = fmt(parseInt(m[1])); } catch {}
+  try { const r = await fetch(API + '/metrics'); if (!r.ok) return; const t = await r.text(); const m = t.match(/cortex_events_processed (\d+)/); if (m) document.getElementById('chip-stream').textContent = fmt(parseInt(m[1])); } catch { showToast('Failed to load stream metrics', 'warn'); }
 }
 async function loadDbStats() {
   try {
     const r = await fetch(API + '/api/stats');
-    if (!r.ok) return;
+    if (!r.ok) { showToast('Could not load database stats', 'warn'); return; }
     const d = await r.json();
     if (d.total_games) document.getElementById('chip-games').textContent = fmt(d.total_games);
     if (d.total_players) document.getElementById('chip-players').textContent = fmt(d.total_players);
     if (d.total_events) document.getElementById('chip-events').textContent = fmt(d.total_events);
   } catch {
     document.getElementById('chip-events').textContent = '3.7M';
+    showToast('Failed to fetch database stats', 'error');
   }
 }
 
@@ -949,6 +1178,9 @@ const STAT_CONFIG = {
 async function loadLeaderboard(stat) {
   stat = stat || currentStat;
   const container = document.getElementById('leaderboard-container');
+  if (!container.querySelector('.lb-table')) {
+    container.innerHTML = skeletonRows(8);
+  }
   try {
     const r = await fetch(API + '/api/leaderboard?stat=' + stat);
     if (!r.ok) { container.innerHTML = '<div class="error-msg">Could not load leaderboard</div>'; return; }
@@ -988,6 +1220,7 @@ async function loadLeaderboard(stat) {
     container.innerHTML = html;
   } catch (e) {
     container.innerHTML = '<div class="error-msg">Failed to fetch leaderboard</div>';
+    showToast('Leaderboard failed to load', 'error');
   }
 }
 
@@ -1016,6 +1249,9 @@ let subscribedGameId = null;
 async function loadGames(type) {
   type = type || currentGameType;
   const container = document.getElementById('games-container');
+  if (!container.querySelector('.game-item')) {
+    container.innerHTML = skeletonRows(6);
+  }
   try {
     // Fetch both the DB recent games and live scoreboard in parallel
     const qs = type !== 'all' ? '?type=' + type : '';
@@ -1084,6 +1320,7 @@ async function loadGames(type) {
     }
   } catch (e) {
     container.innerHTML = '<div class="error-msg">Failed to fetch games</div>';
+    showToast('Recent games failed to load', 'error');
   }
 }
 
@@ -1290,7 +1527,7 @@ async function checkIndexStatus() {
       label.textContent = (d.size>=1e6?(d.size/1e6).toFixed(1)+'M':(d.size/1000).toFixed(0)+'K') + ' indexed';
       btn.disabled = false;
     } else { dot.style.background='#ffd700'; label.textContent='building…'; btn.disabled=true; setTimeout(checkIndexStatus,5000); }
-  } catch { document.getElementById('sim-index-label').textContent='unavailable'; document.getElementById('sim-btn').disabled=true; }
+  } catch { document.getElementById('sim-index-label').textContent='unavailable'; document.getElementById('sim-btn').disabled=true; showToast('Similarity index unavailable', 'warn'); }
 }
 
 // ── Similarity search ──
@@ -1316,7 +1553,7 @@ async function runSimilarity() {
       const o = m.home_won ? `<span class="outcome-win">🏠 Home Won</span>` : `<span class="outcome-loss">✈️ Away Won</span>`;
       return `<div class="sim-card"><div class="sim-card-header"><span class="sim-matchup">${m.away} @ ${m.home}</span><span class="sim-similarity">${s}%</span></div><div class="sim-score">${m.score_away} – ${m.score_home}</div><div class="sim-details"><span>Q${m.period} · ${m.date}</span>${o}</div></div>`;
     }).join('');
-  } catch { container.innerHTML='<div class="error-msg">Search failed — server running?</div>'; }
+  } catch { container.innerHTML='<div class="error-msg">Search failed — server running?</div>'; showToast('Similarity search failed', 'error'); }
   finally { btn.disabled=false; btn.textContent='🔍 Find Similar'; }
 }
 
@@ -1421,7 +1658,7 @@ async function fetchEloMap() {
     if (!r.ok) return;
     const d = await r.json();
     (d.teams || []).forEach(t => { eloRatings[t.tricode] = t; });
-  } catch {}
+  } catch { showToast('Failed to load Elo data', 'warn'); }
 }
 
 function renderWinProb(results) {
@@ -1592,6 +1829,7 @@ async function loadElo() {
     }).join('') + '</div>';
   } catch {
     container.innerHTML = '<div style="color:var(--muted);font-size:12px;">Elo ratings unavailable</div>';
+    showToast('Elo ratings failed to load', 'error');
   }
 }
 
@@ -1719,6 +1957,7 @@ async function loadEloHistory() {
     renderDistributionChart();
   } catch (e) {
     console.warn('Elo history unavailable:', e);
+    showToast('Elo history chart data unavailable', 'warn');
   }
 }
 
@@ -1765,6 +2004,11 @@ function updateChartControlsActive() {
   });
 }
 
+function isDark() { return document.documentElement.getAttribute('data-theme') === 'dark'; }
+function chartGridColor() { return isDark() ? 'rgba(255,255,255,0.08)' : '#e4e9f520'; }
+function chartTickColor() { return isDark() ? '#a0a8c8' : '#4a5180'; }
+function chartTooltipBg() { return isDark() ? '#1a1d2eee' : '#16192dee'; }
+
 function renderTrajectoryChart() {
   if (!eloHistoryData || eloHistoryData.length === 0) return;
 
@@ -1808,11 +2052,12 @@ function renderTrajectoryChart() {
             boxWidth: 12,
             padding: 12,
             font: { family: "'Poppins', sans-serif", size: 11 },
+            color: chartTickColor(),
             usePointStyle: true,
           }
         },
         tooltip: {
-          backgroundColor: '#16192dee',
+          backgroundColor: chartTooltipBg(),
           titleFont: { family: "'Poppins', sans-serif", weight: '600' },
           bodyFont: { family: "'JetBrains Mono', monospace", size: 12 },
           padding: 10,
@@ -1824,20 +2069,21 @@ function renderTrajectoryChart() {
       },
       scales: {
         x: {
-          grid: { color: '#e4e9f520' },
-          ticks: { font: { family: "'Poppins', sans-serif", size: 11 } }
+          grid: { color: chartGridColor() },
+          ticks: { font: { family: "'Poppins', sans-serif", size: 11 }, color: chartTickColor() }
         },
         y: {
-          grid: { color: '#e4e9f530' },
+          grid: { color: chartGridColor() },
           ticks: {
             font: { family: "'JetBrains Mono', monospace", size: 11 },
+            color: chartTickColor(),
             callback: v => Math.round(v),
           },
           title: {
             display: true,
             text: 'Elo Rating',
             font: { family: "'Poppins', sans-serif", size: 12, weight: '600' },
-            color: '#4a5180',
+            color: chartTickColor(),
           }
         }
       }
@@ -1880,7 +2126,7 @@ function renderDistributionChart() {
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: '#16192dee',
+          backgroundColor: chartTooltipBg(),
           titleFont: { family: "'Poppins', sans-serif", weight: '600' },
           bodyFont: { family: "'JetBrains Mono', monospace", size: 12 },
           padding: 10,
@@ -1896,17 +2142,18 @@ function renderDistributionChart() {
       },
       scales: {
         x: {
-          grid: { color: '#e4e9f520' },
+          grid: { color: chartGridColor() },
           min: Math.min(...ratings) - 50,
           ticks: {
             font: { family: "'JetBrains Mono', monospace", size: 10 },
+            color: chartTickColor(),
             callback: v => Math.round(v),
           },
           title: {
             display: true,
             text: 'Elo Rating',
             font: { family: "'Poppins', sans-serif", size: 12, weight: '600' },
-            color: '#4a5180',
+            color: chartTickColor(),
           }
         },
         y: {
@@ -1915,7 +2162,7 @@ function renderDistributionChart() {
             font: { family: "'Poppins', sans-serif", size: 11, weight: '600' },
             color: (ctx) => {
               const idx = ctx.index;
-              return idx < 3 ? '#ff5722' : idx < 8 ? '#7c4dff' : '#4a5180';
+              return idx < 3 ? '#ff5722' : idx < 8 ? '#7c4dff' : chartTickColor();
             }
           }
         }
@@ -1931,7 +2178,7 @@ async function refreshAll() {
   loadEloHistory();
 }
 
-refreshAll(); checkIndexStatus(); setInterval(refreshAll, 30_000);
+refreshAll(); checkIndexStatus(); startAutoRefresh();
 </script>
 </body>
 </html>

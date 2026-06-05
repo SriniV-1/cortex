@@ -14,6 +14,8 @@
 #include "serving/handlers/analytics_handler.hpp"
 #include "serving/handlers/metrics_handler.hpp"
 #include "serving/handlers/ws_handler.hpp"
+#include "serving/handlers/docs_handler.hpp"
+#include "serving/handlers/auth_handler.hpp"
 #include "common/Logger.hpp"
 
 #include <pqxx/pqxx>
@@ -65,6 +67,9 @@ void HttpServer::register_routes() {
     router_.add("GET", "/api/index/status",           handle_index_status);
     router_.add("GET", "/api/similar",                handle_similarity);
     router_.add("GET", "/live/:gameId",               handle_ws_upgrade);
+    router_.add("GET", "/api/openapi.json",            handle_openapi);
+    router_.add("GET", "/docs",                        handle_docs);
+    router_.add("POST", "/api/auth/token",             handle_auth_token);
 }
 
 // ── Server lifecycle ──────────────────────────────────────────────────────
@@ -138,6 +143,8 @@ void HttpServer::accept_connection() {
         conn->live_ingestor     = cfg_.live_ingestor;
         conn->rate_limiter      = &rate_limiter_;
         conn->redis_circuit_breaker = &cache_->circuit_breaker();
+        conn->jwt_secret        = cfg_.jwt_secret;
+        conn->api_key           = cfg_.api_key;
         conn->router            = &router_;
         if (peer.ss_family == AF_INET) {
             char ip[INET_ADDRSTRLEN]{};

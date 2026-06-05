@@ -172,6 +172,7 @@ add_library(cortex_serving_lib STATIC
     src/serving/HttpServer.cpp
     src/serving/Router.cpp
     src/serving/RedisCache.cpp
+    src/serving/Auth.cpp
     src/serving/handlers/health_handler.cpp
     src/serving/handlers/stats_handler.cpp
     src/serving/handlers/games_handler.cpp
@@ -180,6 +181,8 @@ add_library(cortex_serving_lib STATIC
     src/serving/handlers/metrics_handler.cpp
     src/serving/handlers/ws_handler.cpp
     src/serving/handlers/static_handler.cpp
+    src/serving/handlers/docs_handler.cpp
+    src/serving/handlers/auth_handler.cpp
 )
 target_include_directories(cortex_serving_lib PUBLIC
     ${CMAKE_SOURCE_DIR}/include
@@ -214,6 +217,7 @@ add_executable(cortex_tests
     tests/unit/test_handlers.cpp
     tests/unit/test_pagination.cpp
     tests/unit/test_circuit_breaker.cpp
+    tests/unit/test_auth.cpp
 )
 target_compile_definitions(cortex_tests PRIVATE
     CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"

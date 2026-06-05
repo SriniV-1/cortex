@@ -1,6 +1,9 @@
 #pragma once
 // Request — typed wrapper for an incoming HTTP request.
 
+#include "serving/Auth.hpp"
+
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -16,6 +19,7 @@ struct Request {
     std::string body;
     std::string client_ip;
     std::string trace_id;           // UUID v4 request trace ID
+    std::optional<JWTClaims> auth_claims;  // populated by auth middleware
 
     // Convenience: get a query param with fallback.
     std::string query(const std::string& key,

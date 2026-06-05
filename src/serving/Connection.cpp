@@ -4,6 +4,7 @@
 #include "serving/Request.hpp"
 #include "serving/Response.hpp"
 #include "serving/ServerContext.hpp"
+#include "serving/Auth.hpp"
 #include "serving/handlers/static_handler.hpp"
 #include "common/Logger.hpp"
 #include "common/TraceContext.hpp"
@@ -141,6 +142,8 @@ void Connection::send_response(int status, const std::string& ct,
     switch (status) {
     case 200: reason = "OK";          break;
     case 400: reason = "Bad Request"; break;
+    case 401: reason = "Unauthorized"; break;
+    case 403: reason = "Forbidden";   break;
     case 404: reason = "Not Found";   break;
     case 429: reason = "Too Many Requests"; break;
     case 500: reason = "Server Error";break;
@@ -202,6 +205,8 @@ void Connection::process_http_request(const std::string& method,
     ctx.rate_limiter      = rate_limiter;
     ctx.redis_circuit_breaker = redis_circuit_breaker;
     ctx.www_root          = www_root;
+    ctx.jwt_secret        = jwt_secret;
+    ctx.api_key           = api_key;
     ctx.connection        = this;
 
     // Try router match
@@ -219,6 +224,37 @@ void Connection::process_http_request(const std::string& method,
                 }
             }
 
+            // ── JWT auth middleware ──────────────────────────────────────
+            // Exempt paths that don't require authentication.
+            bool auth_exempt = (path == "/health" || path == "/ready" ||
+                                path == "/metrics" || path == "/" ||
+                                path == "/docs" || path == "/api/openapi.json" ||
+                                (method == "POST" && path == "/api/auth/token"));
+
+            std::optional<JWTClaims> claims;
+            if (!auth_exempt && !jwt_secret.empty()) {
+                std::string auth_header = get_header(headers_raw, "Authorization");
+                if (auth_header.empty() || auth_header.size() <= 7 ||
+                    auth_header.substr(0, 7) != "Bearer ") {
+                    send_response(401, "application/json",
+                        R"({"error":"missing or malformed Authorization header"})", false);
+                    return;
+                }
+                std::string token = auth_header.substr(7);
+                claims = validate_token(token, jwt_secret);
+                if (!claims) {
+                    send_response(401, "application/json",
+                        R"({"error":"invalid or expired token"})", false);
+                    return;
+                }
+                // RBAC: viewers can only use GET; admin can use anything
+                if (claims->role == "viewer" && method != "GET") {
+                    send_response(403, "application/json",
+                        R"({"error":"insufficient permissions — admin role required"})", false);
+                    return;
+                }
+            }
+
             Request req;
             req.method       = method;
             req.path         = path;
@@ -229,6 +265,7 @@ void Connection::process_http_request(const std::string& method,
             req.body         = body;
             req.client_ip    = client_ip;
             req.trace_id     = current_trace_id_;
+            req.auth_claims  = claims;
 
             Response res;
             route->handler(req, res, ctx);

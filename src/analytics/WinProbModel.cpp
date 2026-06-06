@@ -38,7 +38,6 @@ float WinProbModel::predict(const WinProbInput& input) const {
     };
 
     constexpr std::array<int64_t, 2> input_shape  = {1, 7};
-    constexpr std::array<int64_t, 2> output_shape = {1, 1};
 
     auto memory_info = Ort::MemoryInfo::CreateCpu(
         OrtAllocatorType::OrtArenaAllocator, OrtMemType::OrtMemTypeDefault);

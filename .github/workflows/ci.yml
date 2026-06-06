@@ -54,8 +54,16 @@ jobs:
             libpqxx-dev libspdlog-dev libsimdjson-dev \
             libcurl4-openssl-dev libssl-dev \
             libhiredis-dev libgtest-dev \
-            libonnxruntime-dev llhttp-dev \
+            libllhttp-dev \
             redis-server
+
+      - name: Install ONNX Runtime (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          ORT_VERSION=1.21.1
+          curl -sL https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz | \
+            sudo tar xz -C /usr/local --strip-components=1
+          sudo ldconfig
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'

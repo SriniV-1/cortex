@@ -16,7 +16,7 @@ jobs:
             build_type: Release
           - os: ubuntu-24.04
             build_type: Debug
-          - os: macos-14
+          - os: macos-15
             build_type: Release
 
     runs-on: ${{ matrix.os }}
@@ -54,7 +54,6 @@ jobs:
             libpqxx-dev libspdlog-dev libsimdjson-dev \
             libcurl4-openssl-dev libssl-dev \
             libhiredis-dev libgtest-dev \
-            libllhttp-dev \
             redis-server
 
       - name: Install ONNX Runtime (Ubuntu)
@@ -63,6 +62,15 @@ jobs:
           ORT_VERSION=1.21.1
           curl -sL https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz | \
             sudo tar xz -C /usr/local --strip-components=1
+          sudo ldconfig
+
+      - name: Install llhttp (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          curl -sL https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.2.1.tar.gz | tar xz
+          cmake -B llhttp-build -S llhttp-release-v9.2.1 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_STATIC_LIBS=ON
+          cmake --build llhttp-build -j$(nproc)
+          sudo cmake --install llhttp-build
           sudo ldconfig
 
       - name: Install dependencies (macOS)

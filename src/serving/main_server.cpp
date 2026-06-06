@@ -88,9 +88,9 @@ int main(int argc, char** argv) {
 
     // ── Similarity index (built in background — HTTP server starts immediately) ──
     GameStateIndex sim_index;
-    std::jthread   sim_builder;
+    std::thread   sim_builder;
     if (!db_conn.empty()) {
-        sim_builder = std::jthread([&]() {
+        sim_builder = std::thread([&]() {
             try {
                 pqxx::connection build_conn(db_conn);
                 sim_index.build_from_db(build_conn);
@@ -103,9 +103,9 @@ int main(int argc, char** argv) {
 
     // ── Elo ratings (built in background alongside similarity index) ──────
     EloTracker elo_tracker;
-    std::jthread elo_builder;
+    std::thread elo_builder;
     if (!db_conn.empty()) {
-        elo_builder = std::jthread([&]() {
+        elo_builder = std::thread([&]() {
             try {
                 pqxx::connection elo_conn(db_conn);
                 elo_tracker.build_from_db(elo_conn);
@@ -143,9 +143,12 @@ int main(int argc, char** argv) {
         return static_cast<long>(t4 - t);
     };
 
-    // Interruptible sleep: sleeps in 1-second increments, checking the stop token.
-    auto interruptible_sleep = [](std::stop_token& stop, long seconds) {
-        for (long i = 0; i < seconds && !stop.stop_requested(); ++i)
+    // Shared stop flag for background threads (replaces std::stop_token).
+    std::atomic<bool> bg_stop{false};
+
+    // Interruptible sleep: sleeps in 1-second increments, checking the stop flag.
+    auto interruptible_sleep = [&bg_stop](long seconds) {
+        for (long i = 0; i < seconds && !bg_stop.load(std::memory_order_acquire); ++i)
             std::this_thread::sleep_for(std::chrono::seconds(1));
     };
 
@@ -171,17 +174,17 @@ int main(int argc, char** argv) {
         } catch (...) {}
     };
 
-    std::jthread daily_refresher;
+    std::thread daily_refresher;
     if (!db_conn.empty()) {
-        daily_refresher = std::jthread([&, current_nba_season, secs_until_4am,
-                                        interruptible_sleep, truncate_log](std::stop_token stop) {
+        daily_refresher = std::thread([&, current_nba_season, secs_until_4am,
+                                        interruptible_sleep, truncate_log]() {
             auto rlog = cortex::get_logger("refresh");
             // Wait until next 4 AM before the first run.
             long wait = secs_until_4am();
             rlog->info("Daily refresh scheduled in {:.1f} hours", wait / 3600.0);
-            interruptible_sleep(stop, wait);
+            interruptible_sleep(wait);
 
-            while (!stop.stop_requested()) {
+            while (!bg_stop.load(std::memory_order_acquire)) {
                 int season = current_nba_season();
                 rlog->info("Daily refresh: loading season {} (regular + playoffs) …", season);
                 try {
@@ -192,7 +195,7 @@ int main(int argc, char** argv) {
                     // Regular season
                     auto reg_ids = cortex::etl::NBAClient::game_ids_for_season(season, 1230, 2);
                     for (const auto& gid : reg_ids) {
-                        if (stop.stop_requested()) break;
+                        if (bg_stop.load(std::memory_order_acquire)) break;
                         auto pbp = client.fetch_play_by_play(gid);
                         if (pbp) {
                             int64_t n = inserter.bulk_insert_play_by_play(*pbp, season);
@@ -203,7 +206,7 @@ int main(int argc, char** argv) {
                     // Playoffs (up to 400 IDs covers all rounds)
                     auto po_ids = cortex::etl::NBAClient::game_ids_for_season(season, 400, 4);
                     for (const auto& gid : po_ids) {
-                        if (stop.stop_requested()) break;
+                        if (bg_stop.load(std::memory_order_acquire)) break;
                         auto pbp = client.fetch_play_by_play(gid);
                         if (pbp) {
                             int64_t n = inserter.bulk_insert_play_by_play(*pbp, season);
@@ -232,7 +235,7 @@ int main(int argc, char** argv) {
                 // Truncate log file to prevent unbounded disk growth.
                 truncate_log(1000);
                 // Sleep until next 4 AM.
-                interruptible_sleep(stop, secs_until_4am());
+                interruptible_sleep(secs_until_4am());
             }
         });
     }
@@ -326,10 +329,10 @@ int main(int argc, char** argv) {
     });
 
     // ── Periodic stat eviction (reclaim memory for finished games) ─────────
-    std::jthread stat_evictor([&, interruptible_sleep](std::stop_token stop) {
-        while (!stop.stop_requested()) {
-            interruptible_sleep(stop, 600);  // 10 minutes
-            if (stop.stop_requested()) break;
+    std::thread stat_evictor([&, interruptible_sleep]() {
+        while (!bg_stop.load(std::memory_order_acquire)) {
+            interruptible_sleep(600);  // 10 minutes
+            if (bg_stop.load(std::memory_order_acquire)) break;
             accumulator.evict_stale(std::chrono::seconds(4 * 3600));
         }
     });
@@ -356,14 +359,12 @@ int main(int argc, char** argv) {
     if (ingestor) ingestor->stop();
     proc.stop();
 
-    // Request stop on all jthreads so their interruptible sleeps exit promptly.
-    // jthread destructors call request_stop()+join() automatically, but we do
-    // it explicitly here to control ordering and avoid use-after-free on locals
-    // captured by reference (accumulator, db_conn, sim_index, elo_tracker).
-    if (stat_evictor.joinable())    { stat_evictor.request_stop();    stat_evictor.join(); }
-    if (daily_refresher.joinable()) { daily_refresher.request_stop(); daily_refresher.join(); }
-    if (elo_builder.joinable())     { elo_builder.request_stop();     elo_builder.join(); }
-    if (sim_builder.joinable())     { sim_builder.request_stop();     sim_builder.join(); }
+    // Signal all background threads to stop, then join in reverse start order.
+    bg_stop.store(true, std::memory_order_release);
+    if (stat_evictor.joinable())    stat_evictor.join();
+    if (daily_refresher.joinable()) daily_refresher.join();
+    if (elo_builder.joinable())     elo_builder.join();
+    if (sim_builder.joinable())     sim_builder.join();
 
     log->info("Shutdown complete.");
     return 0;

@@ -49,7 +49,7 @@ private:
     StatAccumulator&         accumulator_;
     std::atomic<bool>        running_{false};
     std::atomic<bool>        stop_flag_{false};
-    std::jthread             thread_;
+    std::thread             thread_;
 
     // Metrics (written only by consumer thread)
     int64_t events_processed_ = 0;

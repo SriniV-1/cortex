@@ -1,5 +1,6 @@
 # Build artifacts
 build/
+build-debug/
 *.o
 *.a
 *.so
@@ -23,7 +24,12 @@ data/cache/
 # macOS
 .DS_Store
 
+# Runtime
+.cortex.log
+.cortex.pid
+
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp

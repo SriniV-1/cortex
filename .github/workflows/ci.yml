@@ -59,7 +59,7 @@ jobs:
       - name: Install ONNX Runtime (Ubuntu)
         if: runner.os == 'Linux'
         run: |
-          ORT_VERSION=1.21.1
+          ORT_VERSION=1.22.0
           curl -sL https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz | \
             sudo tar xz -C /usr/local --strip-components=1
           sudo ldconfig

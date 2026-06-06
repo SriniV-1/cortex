@@ -150,11 +150,12 @@ static void run_season_load(
 
     auto start = std::chrono::steady_clock::now();
 
-    std::vector<std::jthread> threads;
+    std::vector<std::thread> threads;
     threads.reserve(num_threads);
     for (int i = 0; i < num_threads; ++i)
         threads.emplace_back(worker, i);
-    threads.clear();  // jthread joins on destruction
+    for (auto& t : threads) t.join();
+    threads.clear();
 
     auto elapsed = std::chrono::steady_clock::now() - start;
     double secs  = std::chrono::duration<double>(elapsed).count();
@@ -260,10 +261,11 @@ static void run_populate_dimensions(
 
     auto start = std::chrono::steady_clock::now();
 
-    std::vector<std::jthread> threads;
+    std::vector<std::thread> threads;
     threads.reserve(num_threads);
     for (int i = 0; i < num_threads; ++i)
         threads.emplace_back(worker, i);
+    for (auto& t : threads) t.join();
     threads.clear();
 
     auto elapsed = std::chrono::steady_clock::now() - start;

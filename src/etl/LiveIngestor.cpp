@@ -30,7 +30,7 @@ LiveIngestor::~LiveIngestor() { stop(); }
 void LiveIngestor::start() {
     if (running_.load(std::memory_order_acquire)) return;
     stop_flag_.store(false, std::memory_order_release);
-    thread_ = std::jthread([this] { run(); });
+    thread_ = std::thread([this] { run(); });
 }
 
 void LiveIngestor::stop() {

@@ -75,7 +75,7 @@ private:
     std::atomic<bool>    stop_flag_{false};
     std::atomic<bool>    running_{false};
     std::atomic<int64_t> events_injected_{0};
-    std::jthread         thread_;
+    std::thread         thread_;
 
     // Per-game watermark: highest order_number seen.
     std::unordered_map<std::string, int64_t>  watermarks_;

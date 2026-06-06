@@ -11,7 +11,7 @@ void StreamProcessor::start(EventCallback cb) {
     stop_flag_.store(false, std::memory_order_release);
 
     // jthread captures [this, cb] by value/reference — cb may be nullptr
-    thread_ = std::jthread([this, cb = std::move(cb)]() mutable {
+    thread_ = std::thread([this, cb = std::move(cb)]() mutable {
         run(std::move(cb));
     });
 }

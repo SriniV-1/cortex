@@ -103,7 +103,6 @@ protected:
         txn.exec("DELETE FROM games");
         txn.exec("DELETE FROM players");
         txn.exec("DELETE FROM teams");
-        txn.exec("DELETE FROM team_elo");
         txn.commit();
     }
 
@@ -130,33 +129,42 @@ TEST_F(IntegrationTest, DatabaseSchemaApplied) {
     EXPECT_NE(std::find(tables.begin(), tables.end(), "games"), tables.end());
     EXPECT_NE(std::find(tables.begin(), tables.end(), "players"), tables.end());
     EXPECT_NE(std::find(tables.begin(), tables.end(), "teams"), tables.end());
-    EXPECT_NE(std::find(tables.begin(), tables.end(), "team_elo"), tables.end());
 }
 
 TEST_F(IntegrationTest, InsertAndQueryGames) {
     pqxx::connection conn(conn_str_);
 
+    // Insert teams first (FK constraint)
+    {
+        pqxx::work txn(conn);
+        txn.exec("INSERT INTO teams (team_id, tricode, full_name, city) "
+                 "VALUES (1610612747, 'LAL', 'Los Angeles Lakers', 'Los Angeles')");
+        txn.exec("INSERT INTO teams (team_id, tricode, full_name, city) "
+                 "VALUES (1610612743, 'DEN', 'Denver Nuggets', 'Denver')");
+        txn.commit();
+    }
+
     // Insert a fixture game
     {
         pqxx::work txn(conn);
         txn.exec_params(
-            "INSERT INTO games (game_id, game_date, season, game_type, "
-            "home_team, away_team, home_score, away_score, status) "
+            "INSERT INTO games (game_id, game_date, season, season_type, "
+            "home_team_id, away_team_id, home_score, away_score, status) "
             "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-            "0022300001", "2023-10-24", 2023, "regular",
-            "LAL", "DEN", 107, 104, 3);
+            "0022300001", "2023-10-24", 2023, "Regular Season",
+            1610612747, 1610612743, 107, 104, 3);
         txn.commit();
     }
 
     // Query it back
     {
         pqxx::work txn(conn);
-        auto r = txn.exec("SELECT game_id, home_team, away_team, home_score "
+        auto r = txn.exec("SELECT game_id, home_team_id, away_team_id, home_score "
                           "FROM games WHERE game_id = '0022300001'");
         ASSERT_EQ(r.size(), 1u);
         EXPECT_EQ(r[0]["game_id"].as<std::string>(), "0022300001");
-        EXPECT_EQ(r[0]["home_team"].as<std::string>(), "LAL");
-        EXPECT_EQ(r[0]["away_team"].as<std::string>(), "DEN");
+        EXPECT_EQ(r[0]["home_team_id"].as<int>(), 1610612747);
+        EXPECT_EQ(r[0]["away_team_id"].as<int>(), 1610612743);
         EXPECT_EQ(r[0]["home_score"].as<int>(), 107);
     }
 }
@@ -164,15 +172,19 @@ TEST_F(IntegrationTest, InsertAndQueryGames) {
 TEST_F(IntegrationTest, InsertAndQueryPlayEvents) {
     pqxx::connection conn(conn_str_);
 
-    // Insert a game first (FK constraint)
+    // Insert teams and game first (FK constraint)
     {
         pqxx::work txn(conn);
+        txn.exec("INSERT INTO teams (team_id, tricode, full_name, city) "
+                 "VALUES (1610612747, 'LAL', 'Los Angeles Lakers', 'Los Angeles')");
+        txn.exec("INSERT INTO teams (team_id, tricode, full_name, city) "
+                 "VALUES (1610612743, 'DEN', 'Denver Nuggets', 'Denver')");
         txn.exec_params(
-            "INSERT INTO games (game_id, game_date, season, game_type, "
-            "home_team, away_team, home_score, away_score, status) "
+            "INSERT INTO games (game_id, game_date, season, season_type, "
+            "home_team_id, away_team_id, home_score, away_score, status) "
             "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-            "0022300001", "2023-10-24", 2023, "regular",
-            "LAL", "DEN", 107, 104, 3);
+            "0022300001", "2023-10-24", 2023, "Regular Season",
+            1610612747, 1610612743, 107, 104, 3);
         txn.commit();
     }
 
@@ -181,10 +193,12 @@ TEST_F(IntegrationTest, InsertAndQueryPlayEvents) {
         pqxx::work txn(conn);
         for (int i = 1; i <= 10; ++i) {
             txn.exec_params(
-                "INSERT INTO play_events (game_id, action_number, period, "
-                "clock, action_type, description, score_home, score_away) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-                "0022300001", i, 1, "11:30", "2pt", "Made shot", i * 2, 0);
+                "INSERT INTO play_events (event_id, game_id, action_number, "
+                "occurred_at, period, clock, action_type, description, "
+                "score_home, score_away) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                i, "0022300001", i, "2023-10-24T19:00:00Z",
+                1, "11:30", "2pt", "Made shot", i * 2, 0);
         }
         txn.commit();
     }
@@ -203,18 +217,20 @@ TEST_F(IntegrationTest, EloRatingsDeterministic) {
     pqxx::connection conn(conn_str_);
     {
         pqxx::work txn(conn);
-        txn.exec("INSERT INTO teams (tricode, full_name) VALUES ('AAA', 'Team A')");
-        txn.exec("INSERT INTO teams (tricode, full_name) VALUES ('BBB', 'Team B')");
+        txn.exec("INSERT INTO teams (team_id, tricode, full_name, city) "
+                 "VALUES (1, 'AAA', 'Team A', 'City A')");
+        txn.exec("INSERT INTO teams (team_id, tricode, full_name, city) "
+                 "VALUES (2, 'BBB', 'Team B', 'City B')");
 
         // Team A beats Team B 3 times in a row
         for (int i = 1; i <= 3; ++i) {
             std::string gid = "002230000" + std::to_string(i);
             txn.exec_params(
-                "INSERT INTO games (game_id, game_date, season, game_type, "
-                "home_team, away_team, home_score, away_score, status) "
+                "INSERT INTO games (game_id, game_date, season, season_type, "
+                "home_team_id, away_team_id, home_score, away_score, status) "
                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-                gid, "2023-10-2" + std::to_string(i), 2023, "regular",
-                "AAA", "BBB", 100 + i, 90, 3);
+                gid, "2023-10-2" + std::to_string(i), 2023, "Regular Season",
+                1, 2, 100 + i, 90, 3);
         }
         txn.commit();
     }
@@ -276,21 +292,27 @@ TEST_F(IntegrationTest, HttpServerServesLeaderboard) {
     pqxx::connection conn(conn_str_);
     {
         pqxx::work txn(conn);
-        txn.exec("INSERT INTO teams (tricode, full_name) VALUES ('LAL', 'Los Angeles Lakers')");
-        txn.exec("INSERT INTO players (player_id, first_name, last_name) VALUES (2544, 'LeBron', 'James')");
+        txn.exec("INSERT INTO teams (team_id, tricode, full_name, city) "
+                 "VALUES (1610612747, 'LAL', 'Los Angeles Lakers', 'Los Angeles')");
+        txn.exec("INSERT INTO teams (team_id, tricode, full_name, city) "
+                 "VALUES (1610612743, 'DEN', 'Denver Nuggets', 'Denver')");
+        txn.exec("INSERT INTO players (player_id, first_name, last_name, team_id) "
+                 "VALUES (2544, 'LeBron', 'James', 1610612747)");
         txn.exec_params(
-            "INSERT INTO games (game_id, game_date, season, game_type, "
-            "home_team, away_team, home_score, away_score, status) "
+            "INSERT INTO games (game_id, game_date, season, season_type, "
+            "home_team_id, away_team_id, home_score, away_score, status) "
             "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-            "0022300001", "2023-10-24", 2023, "regular",
-            "LAL", "DEN", 107, 104, 3);
+            "0022300001", "2023-10-24", 2023, "Regular Season",
+            1610612747, 1610612743, 107, 104, 3);
         // Insert some play events for the player
         for (int i = 1; i <= 5; ++i) {
             txn.exec_params(
-                "INSERT INTO play_events (game_id, action_number, period, "
-                "clock, action_type, player_id, description, score_home, score_away) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-                "0022300001", i, 1, "11:00", "2pt", 2544, "Made shot", i * 2, 0);
+                "INSERT INTO play_events (event_id, game_id, action_number, "
+                "occurred_at, period, clock, action_type, player_id, "
+                "description, score_home, score_away) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                i, "0022300001", i, "2023-10-24T19:00:00Z",
+                1, "11:00", "2pt", 2544, "Made shot", i * 2, 0);
         }
         txn.commit();
     }

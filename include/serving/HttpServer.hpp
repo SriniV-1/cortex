@@ -48,6 +48,8 @@ namespace pqxx { class connection; }
 
 namespace cortex::serving {
 
+class ConnectionPool;
+
 // ── Outbound WebSocket message ─────────────────────────────────────────────
 struct WsMessage {
     std::string payload;  // already JSON-encoded
@@ -78,7 +80,7 @@ public:
 
     // Injected dependencies — set by HttpServer before registering with poller
     cortex::stream::StatAccumulator*         accumulator        = nullptr;
-    pqxx::connection*                        db_conn            = nullptr;
+    ConnectionPool*                          db_pool            = nullptr;
     ICache*                                  cache              = nullptr;
     std::string                              www_root;
     const cortex::analytics::GameStateIndex* game_state_index   = nullptr;
@@ -128,6 +130,8 @@ public:
 
     std::string read_buf_;   // raw bytes from socket
     std::string write_buf_;  // bytes pending write
+    size_t read_buf_offset_  = 0;  // offset-tracking to avoid O(n) erase
+    size_t write_buf_offset_ = 0;
 
     // HTTP request assembly (written by llhttp callbacks)
     std::string req_method_;
@@ -203,8 +207,8 @@ private:
     mutable std::mutex                              conn_mu_;
     std::unordered_map<int, std::unique_ptr<Connection>> conns_;
 
-    // Shared DB connection (all queries from poller thread — no lock needed)
-    std::unique_ptr<pqxx::connection>        db_;
+    // Thread-safe pool of DB connections (one acquired per request via RAII)
+    std::unique_ptr<ConnectionPool>          db_pool_;
     // Redis cache (1-min TTL on aggregation results)
     std::unique_ptr<RedisCache>              cache_;
     // Token bucket rate limiter

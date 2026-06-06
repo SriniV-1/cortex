@@ -1,4 +1,5 @@
 #include "serving/HttpServer.hpp"
+#include "serving/ConnectionPool.hpp"
 #include "serving/HttpUtils.hpp"
 #include "serving/Router.hpp"
 #include "serving/Request.hpp"
@@ -22,6 +23,9 @@
 #include <unistd.h>
 
 namespace cortex::serving {
+
+// Threshold for compacting offset-tracked buffers to reclaim memory.
+static constexpr size_t kCompactThreshold = 65536;
 
 // ── Helpers (used only by Connection) ─────────────────────────────────────
 
@@ -123,14 +127,18 @@ void Connection::on_readable() {
 
 void Connection::on_writable() {
     if (state_ == State::WebSocket) { ws_flush_outbound(); return; }
-    while (!write_buf_.empty()) {
-        ssize_t n = ::write(fd_, write_buf_.data(), write_buf_.size());
-        if (n > 0) { write_buf_.erase(0, static_cast<size_t>(n)); }
+    while (write_buf_offset_ < write_buf_.size()) {
+        ssize_t n = ::write(fd_, write_buf_.data() + write_buf_offset_,
+                            write_buf_.size() - write_buf_offset_);
+        if (n > 0) { write_buf_offset_ += static_cast<size_t>(n); }
         else if (n < 0) { if (errno == EAGAIN || errno == EWOULDBLOCK) break; close(); return; }
     }
-    if (write_buf_.empty()) {
+    if (write_buf_offset_ >= write_buf_.size()) {
+        write_buf_.clear(); write_buf_offset_ = 0;
         if (close_after_flush_) { close(); return; }
         poller_.modify(fd_, IOEvent::Readable);
+    } else if (write_buf_offset_ > kCompactThreshold) {
+        write_buf_.erase(0, write_buf_offset_); write_buf_offset_ = 0;
     }
 }
 
@@ -194,10 +202,13 @@ void Connection::process_http_request(const std::string& method,
         query_string = raw_path.substr(qpos + 1);
     }
 
+    // Acquire a pooled DB connection for this request (auto-released on scope exit)
+    auto pooled_db = db_pool ? db_pool->acquire() : PooledConnection{};
+
     // Build ServerContext
     ServerContext ctx;
     ctx.accumulator       = accumulator;
-    ctx.db                = db_conn;
+    ctx.db                = pooled_db.get();
     ctx.cache             = cache;
     ctx.game_state_index  = game_state_index;
     ctx.elo_tracker       = elo_tracker;
@@ -362,42 +373,48 @@ void Connection::ws_flush_outbound() {
             write_buf_ += ws_out_queue_.front(); ws_out_queue_.pop();
         }
     }
-    while (!write_buf_.empty()) {
-        ssize_t n = ::write(fd_, write_buf_.data(), write_buf_.size());
-        if (n > 0) { write_buf_.erase(0, static_cast<size_t>(n)); }
+    while (write_buf_offset_ < write_buf_.size()) {
+        ssize_t n = ::write(fd_, write_buf_.data() + write_buf_offset_,
+                            write_buf_.size() - write_buf_offset_);
+        if (n > 0) { write_buf_offset_ += static_cast<size_t>(n); }
         else if (n < 0) { if (errno == EAGAIN || errno == EWOULDBLOCK) break; close(); return; }
         else { close(); return; }
     }
-    if (write_buf_.empty()) poller_.modify(fd_, IOEvent::Readable);
+    if (write_buf_offset_ >= write_buf_.size()) {
+        write_buf_.clear(); write_buf_offset_ = 0;
+        poller_.modify(fd_, IOEvent::Readable);
+    } else if (write_buf_offset_ > kCompactThreshold) {
+        write_buf_.erase(0, write_buf_offset_); write_buf_offset_ = 0;
+    }
 }
 
 void Connection::ws_parse_incoming() {
-    while (read_buf_.size() >= 2) {
-        uint8_t b0 = static_cast<uint8_t>(read_buf_[0]);
-        uint8_t b1 = static_cast<uint8_t>(read_buf_[1]);
+    while (read_buf_.size() - read_buf_offset_ >= 2) {
+        uint8_t b0 = static_cast<uint8_t>(read_buf_[read_buf_offset_ + 0]);
+        uint8_t b1 = static_cast<uint8_t>(read_buf_[read_buf_offset_ + 1]);
         bool    masked     = (b1 & 0x80) != 0;
         uint8_t opcode     = b0 & 0x0F;
         size_t  payload_len = b1 & 0x7F;
         size_t  header_len  = 2 + (masked ? 4 : 0);
         if (payload_len == 126) {
-            if (read_buf_.size() < 4) break;
-            payload_len  = (static_cast<uint8_t>(read_buf_[2]) << 8)
-                         | static_cast<uint8_t>(read_buf_[3]);
+            if (read_buf_.size() - read_buf_offset_ < 4) break;
+            payload_len  = (static_cast<uint8_t>(read_buf_[read_buf_offset_ + 2]) << 8)
+                         | static_cast<uint8_t>(read_buf_[read_buf_offset_ + 3]);
             header_len  += 2;
         } else if (payload_len == 127) {
-            if (read_buf_.size() < 10) break;
+            if (read_buf_.size() - read_buf_offset_ < 10) break;
             payload_len = 0;
             for (int i = 0; i < 8; ++i)
-                payload_len = (payload_len << 8) | static_cast<uint8_t>(read_buf_[2 + i]);
+                payload_len = (payload_len << 8) | static_cast<uint8_t>(read_buf_[read_buf_offset_ + 2 + i]);
             header_len += 8;
         }
-        if (read_buf_.size() < header_len + payload_len) break;
-        std::string payload(read_buf_.data() + header_len, payload_len);
+        if (read_buf_.size() - read_buf_offset_ < header_len + payload_len) break;
+        std::string payload(read_buf_.data() + read_buf_offset_ + header_len, payload_len);
         if (masked) {
-            const char* mask = read_buf_.data() + header_len - 4;
+            const char* mask = read_buf_.data() + read_buf_offset_ + header_len - 4;
             for (size_t i = 0; i < payload_len; ++i) payload[i] ^= mask[i % 4];
         }
-        read_buf_.erase(0, header_len + payload_len);
+        read_buf_offset_ += header_len + payload_len;
         if (opcode == 0x8) {
             ws_send(std::string("\x03\xE8", 2)); close(); return;
         }
@@ -409,6 +426,12 @@ void Connection::ws_parse_incoming() {
             std::lock_guard lock(ws_out_mu_);
             ws_out_queue_.push(pong_frame);
         }
+    }
+    // Compact read buffer
+    if (read_buf_offset_ >= read_buf_.size()) {
+        read_buf_.clear(); read_buf_offset_ = 0;
+    } else if (read_buf_offset_ > kCompactThreshold) {
+        read_buf_.erase(0, read_buf_offset_); read_buf_offset_ = 0;
     }
 }
 

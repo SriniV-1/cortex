@@ -18,7 +18,7 @@
 #include "serving/handlers/auth_handler.hpp"
 #include "common/Logger.hpp"
 
-#include <pqxx/pqxx>
+#include "serving/ConnectionPool.hpp"
 
 #include <cerrno>
 #include <cstring>
@@ -97,10 +97,10 @@ HttpServer::HttpServer(Config cfg, cortex::stream::StatAccumulator& accumulator)
     set_nonblock(listen_fd_);
 
     if (!cfg_.db_conn_str.empty()) {
-        try { db_ = std::make_unique<pqxx::connection>(cfg_.db_conn_str); }
+        try { db_pool_ = std::make_unique<ConnectionPool>(cfg_.db_conn_str, 4); }
         catch (const std::exception& e) {
             auto log = cortex::get_logger("http");
-            log->warn("DB unavailable: {}", e.what());
+            log->warn("DB pool unavailable: {}", e.what());
         }
     }
     cache_ = std::make_unique<RedisCache>(cfg_.redis_host, cfg_.redis_port);
@@ -135,7 +135,7 @@ void HttpServer::accept_connection() {
         set_tcp_nodelay(cfd);
         auto conn = std::make_unique<Connection>(cfd, *poller_);
         conn->accumulator       = &accumulator_;
-        conn->db_conn           = db_.get();
+        conn->db_pool           = db_pool_.get();
         conn->cache             = cache_.get();
         conn->www_root          = cfg_.www_root;
         conn->game_state_index  = cfg_.game_state_index;

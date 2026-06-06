@@ -32,8 +32,8 @@ public:
 
     HNSWIndex(const HNSWIndex&)            = delete;
     HNSWIndex& operator=(const HNSWIndex&) = delete;
-    HNSWIndex(HNSWIndex&&)                 = delete;
-    HNSWIndex& operator=(HNSWIndex&&)      = delete;
+    HNSWIndex(HNSWIndex&&)                 = default;
+    HNSWIndex& operator=(HNSWIndex&&)      = default;
 
     // Insert a single vector with the given external id (index into the
     // caller's metadata arrays).

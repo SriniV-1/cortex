@@ -63,8 +63,8 @@ jobs:
           # but our C++20 build triggers source_location-bearing exception
           # constructors that don't exist in the C++17 binary (ABI mismatch).
           # Build from source with C++20 to get matching symbols.
-          curl -sL https://github.com/jtv/libpqxx/archive/refs/tags/7.8.1.tar.gz | tar xz
-          cmake -B pqxx-build -S libpqxx-7.8.1 \
+          curl -sL https://github.com/jtv/libpqxx/archive/refs/tags/7.9.2.tar.gz | tar xz
+          cmake -B pqxx-build -S libpqxx-7.9.2 \
             -DCMAKE_CXX_STANDARD=20 \
             -DCMAKE_BUILD_TYPE=Release \
             -DSKIP_BUILD_TEST=ON \

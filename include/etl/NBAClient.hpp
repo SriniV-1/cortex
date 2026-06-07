@@ -9,6 +9,7 @@
 //
 // S3 data availability: 2019-present. Pre-2019 returns 403.
 
+#include <memory>
 #include <string>
 #include <vector>
 #include <optional>

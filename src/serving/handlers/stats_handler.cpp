@@ -66,7 +66,7 @@ void handle_player_season(Request& req, Response& res, ServerContext& ctx) {
     auto log = cortex::get_logger("http");
     try {
         pqxx::work txn(*ctx.db);
-        auto r = txn.exec(
+        auto r = txn.exec_params(
             "SELECT SUM(points) AS pts, SUM(rebounds) AS reb, "
             "       SUM(assists) AS ast, SUM(steals) AS stl, "
             "       SUM(blocks) AS blk, SUM(turnovers) AS to_, "
@@ -75,7 +75,7 @@ void handle_player_season(Request& req, Response& res, ServerContext& ctx) {
             "       COUNT(DISTINCT game_id) AS games "
             "FROM player_game_stats "
             "WHERE player_id = $1",
-            pqxx::params{player_id});
+            player_id);
         txn.commit();
 
         if (r.empty() || r[0][0].is_null()) {

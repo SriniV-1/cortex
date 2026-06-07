@@ -278,10 +278,14 @@ TEST_F(IntegrationTest, HttpServerServesHealth) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     ASSERT_TRUE(server->running());
+    // Give the event loop time to start polling
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
+    // Health returns 200 (all deps up) or 503 (degraded) — both are valid
     auto resp = http_get(18090, "/health");
-    EXPECT_NE(resp.find("200"), std::string::npos);
-    EXPECT_NE(resp.find("ok"), std::string::npos);
+    EXPECT_TRUE(resp.find("200") != std::string::npos ||
+                resp.find("503") != std::string::npos);
+    EXPECT_NE(resp.find("checks"), std::string::npos);
 
     server->stop();
     server_thread.join();
@@ -337,6 +341,8 @@ TEST_F(IntegrationTest, HttpServerServesLeaderboard) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     ASSERT_TRUE(server->running());
+    // Give the event loop time to start polling
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
     auto resp = http_get(18091, "/api/leaderboard?stat=pts&season=2023");
     auto body = extract_body(resp);

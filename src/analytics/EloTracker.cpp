@@ -192,13 +192,13 @@ void EloTracker::save_to_db(pqxx::connection& conn) const {
              ")");
 
     for (const auto& [id, te] : ratings_) {
-        txn.exec(
+        txn.exec_params(
             "INSERT INTO team_elo (team_id, tricode, rating, games_played, wins, losses) "
             "VALUES ($1, $2, $3, $4, $5, $6) "
             "ON CONFLICT (team_id) DO UPDATE "
             "SET rating=$3, games_played=$4, wins=$5, losses=$6, updated_at=now()",
-            pqxx::params{te.team_id, te.tricode, te.rating,
-                         te.games_played, te.wins, te.losses}
+            te.team_id, te.tricode, te.rating,
+            te.games_played, te.wins, te.losses
         );
     }
     txn.commit();

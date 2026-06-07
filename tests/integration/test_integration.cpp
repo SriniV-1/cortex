@@ -225,11 +225,12 @@ TEST_F(IntegrationTest, EloRatingsDeterministic) {
         // Team A beats Team B 3 times in a row
         for (int i = 1; i <= 3; ++i) {
             std::string gid = "002230000" + std::to_string(i);
+            std::string date = "2023-10-2" + std::to_string(i);
             txn.exec_params(
                 "INSERT INTO games (game_id, game_date, season, season_type, "
                 "home_team_id, away_team_id, home_score, away_score, status) "
                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-                gid, "2023-10-2" + std::to_string(i), 2023, "Regular Season",
+                gid.c_str(), date.c_str(), 2023, "Regular Season",
                 1, 2, 100 + i, 90, 3);
         }
         txn.commit();

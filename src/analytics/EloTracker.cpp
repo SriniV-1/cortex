@@ -197,7 +197,7 @@ void EloTracker::save_to_db(pqxx::connection& conn) const {
             "VALUES ($1, $2, $3, $4, $5, $6) "
             "ON CONFLICT (team_id) DO UPDATE "
             "SET rating=$3, games_played=$4, wins=$5, losses=$6, updated_at=now()",
-            te.team_id, te.tricode, te.rating,
+            te.team_id, te.tricode.c_str(), te.rating,
             te.games_played, te.wins, te.losses
         );
     }

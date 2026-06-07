@@ -66,18 +66,18 @@ void handle_search_players(Request& req, Response& res, ServerContext& ctx) {
             "GROUP BY p.player_id, name, t.tricode, p.position ";
 
         if (cursor_pts >= 0 && cursor_player_id >= 0) {
-            r = txn.exec(
+            r = txn.exec_params(
                 base_sql +
                 "HAVING (COALESCE(SUM(pgs.points), 0), p.player_id) < ($2, $3) "
                 "ORDER BY COALESCE(SUM(pgs.points), 0) DESC, p.player_id DESC "
                 "LIMIT $4",
-                pqxx::params{query, cursor_pts, cursor_player_id, fetch_limit});
+                query, cursor_pts, cursor_player_id, fetch_limit);
         } else {
-            r = txn.exec(
+            r = txn.exec_params(
                 base_sql +
                 "ORDER BY COALESCE(SUM(pgs.points), 0) DESC, p.player_id DESC "
                 "LIMIT $2",
-                pqxx::params{query, fetch_limit});
+                query, fetch_limit);
         }
         txn.commit();
 
@@ -167,14 +167,14 @@ void handle_search_games(Request& req, Response& res, ServerContext& ctx) {
             "WHERE (ht.tricode = $1 OR at.tricode = $1) ";
 
         if (!cursor_game_id.empty()) {
-            r = txn.exec(
+            r = txn.exec_params(
                 sql + "AND g.game_id < $2 "
                 "ORDER BY g.game_date DESC, g.game_id DESC LIMIT $3",
-                pqxx::params{team, cursor_game_id, fetch_limit});
+                team, cursor_game_id, fetch_limit);
         } else {
-            r = txn.exec(
+            r = txn.exec_params(
                 sql + "ORDER BY g.game_date DESC, g.game_id DESC LIMIT $2",
-                pqxx::params{team, fetch_limit});
+                team, fetch_limit);
         }
         txn.commit();
 
@@ -264,43 +264,43 @@ void handle_search_events(Request& req, Response& res, ServerContext& ctx) {
         if (!pid_str.empty() && !action.empty() && !game_id.empty()) {
             bool valid = std::find(valid_actions.begin(), valid_actions.end(), action) != valid_actions.end();
             if (!valid) { res.json(R"({"error":"invalid action_type"})", 400); return; }
-            r = txn.exec(
+            r = txn.exec_params(
                 sql + "AND pe.player_id = $1 AND pe.action_type = $2 AND pe.game_id = $3 "
                 "ORDER BY pe.occurred_at DESC LIMIT $4",
-                pqxx::params{pid_val, action, game_id, limit_n});
+                pid_val, action, game_id, limit_n);
         } else if (!pid_str.empty() && !action.empty()) {
             bool valid = std::find(valid_actions.begin(), valid_actions.end(), action) != valid_actions.end();
             if (!valid) { res.json(R"({"error":"invalid action_type"})", 400); return; }
-            r = txn.exec(
+            r = txn.exec_params(
                 sql + "AND pe.player_id = $1 AND pe.action_type = $2 "
                 "ORDER BY pe.occurred_at DESC LIMIT $3",
-                pqxx::params{pid_val, action, limit_n});
+                pid_val, action, limit_n);
         } else if (!pid_str.empty() && !game_id.empty()) {
-            r = txn.exec(
+            r = txn.exec_params(
                 sql + "AND pe.player_id = $1 AND pe.game_id = $2 "
                 "ORDER BY pe.action_number ASC LIMIT $3",
-                pqxx::params{pid_val, game_id, limit_n});
+                pid_val, game_id, limit_n);
         } else if (!game_id.empty() && !action.empty()) {
             bool valid = std::find(valid_actions.begin(), valid_actions.end(), action) != valid_actions.end();
             if (!valid) { res.json(R"({"error":"invalid action_type"})", 400); return; }
-            r = txn.exec(
+            r = txn.exec_params(
                 sql + "AND pe.game_id = $1 AND pe.action_type = $2 "
                 "ORDER BY pe.action_number ASC LIMIT $3",
-                pqxx::params{game_id, action, limit_n});
+                game_id, action, limit_n);
         } else if (!pid_str.empty()) {
-            r = txn.exec(
+            r = txn.exec_params(
                 sql + "AND pe.player_id = $1 ORDER BY pe.occurred_at DESC LIMIT $2",
-                pqxx::params{pid_val, limit_n});
+                pid_val, limit_n);
         } else if (!game_id.empty()) {
-            r = txn.exec(
+            r = txn.exec_params(
                 sql + "AND pe.game_id = $1 ORDER BY pe.action_number ASC LIMIT $2",
-                pqxx::params{game_id, limit_n});
+                game_id, limit_n);
         } else if (!action.empty()) {
             bool valid = std::find(valid_actions.begin(), valid_actions.end(), action) != valid_actions.end();
             if (!valid) { res.json(R"({"error":"invalid action_type"})", 400); return; }
-            r = txn.exec(
+            r = txn.exec_params(
                 sql + "AND pe.action_type = $1 ORDER BY pe.occurred_at DESC LIMIT $2",
-                pqxx::params{action, limit_n});
+                action, limit_n);
         }
         txn.commit();
 

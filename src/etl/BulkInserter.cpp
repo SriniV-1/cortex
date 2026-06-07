@@ -55,12 +55,12 @@ void BulkInserter::ensure_team(const TeamInfo& team) {
     pqxx::work txn(conn_);
     // Use full name and city from boxscore. ON CONFLICT DO NOTHING — team metadata
     // rarely changes and we don't want to clobber conference/division if set manually.
-    txn.exec(
+    txn.exec_params(
         "INSERT INTO teams (team_id, tricode, full_name, city) "
         "VALUES ($1, $2, $3, $4) ON CONFLICT (team_id) DO NOTHING",
-        pqxx::params{team.team_id, team.tricode,
-                     team.name.empty() ? team.tricode : team.name,
-                     team.city.empty() ? team.tricode : team.city}
+        team.team_id, team.tricode,
+        team.name.empty() ? team.tricode : team.name,
+        team.city.empty() ? team.tricode : team.city
     );
     txn.commit();
 }
@@ -75,16 +75,16 @@ void BulkInserter::upsert_game(const GameSummary& game) {
                           : game.game_date;
     std::string st = season_type_from_game_id(game.game_id);
     pqxx::work txn(conn_);
-    txn.exec(
+    txn.exec_params(
         "INSERT INTO games "
         "  (game_id, season, season_type, game_date, home_team_id, away_team_id, "
         "   home_score, away_score, status) "
         "VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8, $9) "
         "ON CONFLICT (game_id) DO NOTHING",
-        pqxx::params{game.game_id, season, st, game_date,
-                     game.home_team_id, game.away_team_id,
-                     game.home_score, game.away_score,
-                     game.status}
+        game.game_id, season, st, game_date,
+        game.home_team_id, game.away_team_id,
+        game.home_score, game.away_score,
+        game.status
     );
     txn.commit();
 }
@@ -96,7 +96,7 @@ void BulkInserter::upsert_players(const std::vector<PlayerInfo>& players) {
     for (const auto& p : players) {
         if (p.person_id <= 0) continue;
         // Update team/jersey/position on conflict — players change teams between seasons.
-        txn.exec(
+        txn.exec_params(
             "INSERT INTO players "
             "  (player_id, first_name, last_name, team_id, jersey_num, position, is_active) "
             "VALUES ($1, $2, $3, $4, $5, $6, true) "
@@ -105,13 +105,11 @@ void BulkInserter::upsert_players(const std::vector<PlayerInfo>& players) {
             "      jersey_num = EXCLUDED.jersey_num, "
             "      position   = EXCLUDED.position, "
             "      is_active  = true",
-            pqxx::params{
-                p.person_id,
-                p.first_name, p.last_name,
-                p.team_id > 0 ? std::optional<int32_t>(p.team_id) : std::nullopt,
-                p.jersey_num >= 0 ? std::optional<int16_t>(p.jersey_num) : std::nullopt,
-                p.position.empty() ? std::optional<std::string>{} : std::optional<std::string>(p.position)
-            }
+            p.person_id,
+            p.first_name, p.last_name,
+            p.team_id > 0 ? std::optional<int32_t>(p.team_id) : std::nullopt,
+            p.jersey_num >= 0 ? std::optional<int16_t>(p.jersey_num) : std::nullopt,
+            p.position.empty() ? std::optional<std::string>{} : std::optional<std::string>(p.position)
         );
     }
     txn.commit();
@@ -120,9 +118,9 @@ void BulkInserter::upsert_players(const std::vector<PlayerInfo>& players) {
 // ── Check if game already loaded ───────────────────────────────────────────
 bool BulkInserter::is_game_loaded(const std::string& game_id) const {
     pqxx::work txn(const_cast<pqxx::connection&>(conn_));
-    auto r = txn.exec(
+    auto r = txn.exec_params(
         "SELECT 1 FROM etl_progress WHERE game_id = $1 AND status = 'done'",
-        pqxx::params{game_id}
+        game_id
     );
     txn.commit();
     return !r.empty();
@@ -226,20 +224,20 @@ void BulkInserter::mark_progress(
     try {
         pqxx::work txn(conn_);
         if (error_msg.empty()) {
-            txn.exec(
+            txn.exec_params(
                 "INSERT INTO etl_progress (season, game_id, event_count, status) "
                 "VALUES ($1, $2, $3, $4) "
                 "ON CONFLICT (season, game_id) DO UPDATE "
                 "SET status=$4, event_count=$3, fetched_at=now()",
-                pqxx::params{season, game_id, static_cast<int>(event_count), status}
+                season, game_id, static_cast<int>(event_count), status
             );
         } else {
-            txn.exec(
+            txn.exec_params(
                 "INSERT INTO etl_progress (season, game_id, event_count, status, error_msg) "
                 "VALUES ($1, $2, $3, $4, $5) "
                 "ON CONFLICT (season, game_id) DO UPDATE "
                 "SET status=$4, event_count=$3, error_msg=$5, fetched_at=now()",
-                pqxx::params{season, game_id, static_cast<int>(event_count), status, error_msg}
+                season, game_id, static_cast<int>(event_count), status, error_msg
             );
         }
         txn.commit();

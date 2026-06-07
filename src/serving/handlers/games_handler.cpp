@@ -57,13 +57,13 @@ void handle_games_recent(Request& req, Response& res, ServerContext& ctx) {
         if (!cursor_game_id.empty()) {
             std::string cursor_cond = (where_clause.empty() ? "WHERE " : "AND ") +
                 std::string("g.game_id < $1 ");
-            r = txn.exec(
+            r = txn.exec_params(
                 base_sql + where_clause + cursor_cond + order_clause + "LIMIT $2",
-                pqxx::params{cursor_game_id, fetch_limit});
+                cursor_game_id, fetch_limit);
         } else {
-            r = txn.exec(
+            r = txn.exec_params(
                 base_sql + where_clause + order_clause + "LIMIT $1",
-                pqxx::params{fetch_limit});
+                fetch_limit);
         }
         txn.commit();
 

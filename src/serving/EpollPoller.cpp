@@ -136,9 +136,13 @@ void EpollPoller::run() {
             if (cb) cb(fd, mask);
 
             // Re-arm after EPOLLONESHOT fires (unless removed by callback).
+            // Re-read interest from fds_ since the callback may have called
+            // modify() to change the interest mask (e.g. adding Writable
+            // after queuing a response).
             {
                 std::lock_guard lock(mu_);
-                if (fds_.count(fd)) rearm(fd, interest);
+                auto it = fds_.find(fd);
+                if (it != fds_.end()) rearm(fd, it->second.interest);
             }
         }
     }

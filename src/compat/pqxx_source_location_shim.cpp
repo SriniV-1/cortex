@@ -13,7 +13,7 @@
 #include <source_location>
 #if __cpp_lib_source_location >= 201907L
 
-#include <pqxx/except.hxx>
+#include <pqxx/except>
 
 namespace pqxx
 {

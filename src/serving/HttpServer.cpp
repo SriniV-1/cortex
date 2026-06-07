@@ -77,7 +77,7 @@ void HttpServer::register_routes() {
 HttpServer::HttpServer(Config cfg, cortex::stream::StatAccumulator& accumulator)
     : cfg_(std::move(cfg))
     , accumulator_(accumulator)
-    , poller_(std::make_unique<KqueuePoller>(1024))
+    , poller_(std::make_unique<PlatformPoller>(1024))
 {
     register_routes();
 

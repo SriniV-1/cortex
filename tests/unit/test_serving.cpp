@@ -4,7 +4,9 @@
 // Note: WebSocket and Redis integration tests require a running server;
 // those are skipped unless CORTEX_RUN_SERVING_TESTS=1.
 
+#ifdef __APPLE__
 #include "serving/KqueuePoller.hpp"
+#endif
 #include "serving/HttpServer.hpp"
 #include "serving/RedisCache.hpp"
 #include "stream/StatAccumulator.hpp"
@@ -24,7 +26,9 @@
 using namespace cortex::serving;
 using namespace cortex::stream;
 
-// ── KqueuePoller ──────────────────────────────────────────────────────────
+// ── KqueuePoller (macOS only) ─────────────────────────────────────────────
+
+#ifdef __APPLE__
 
 TEST(KqueuePoller, ConstructAndStop) {
     KqueuePoller poller;
@@ -79,6 +83,8 @@ TEST(KqueuePoller, PipeReadableEvent) {
     ::close(pipefd[1]);
     EXPECT_TRUE(got_readable.load());
 }
+
+#endif // __APPLE__
 
 // ── HttpServer helpers ────────────────────────────────────────────────────
 

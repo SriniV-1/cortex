@@ -143,7 +143,7 @@ int main() {
         if (n > 0) server.broadcast(gid, std::string(buf, n));
     });
 
-    std::jthread server_thread([&] { server.run(); });
+    std::thread server_thread([&] { server.run(); });
 
     // Wait for server ready
     while (!server.running())
@@ -168,7 +168,7 @@ int main() {
     std::atomic<int> connected_count{0};
 
     // Client threads: connect, handshake, then loop receiving frames
-    std::vector<std::jthread> client_threads;
+    std::vector<std::thread> client_threads;
     client_threads.reserve(N_CLIENTS);
 
     for (int i = 0; i < N_CLIENTS; ++i) {
@@ -280,6 +280,8 @@ int main() {
 
     // Shutdown
     server.stop();
+    for (auto& t : client_threads)
+        if (t.joinable()) t.join();
     server_thread.join();
     proc.stop();
 

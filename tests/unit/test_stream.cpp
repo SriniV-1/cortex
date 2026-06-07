@@ -77,14 +77,14 @@ TEST(RingBuffer, SPSC_Concurrent) {
     constexpr int N = 100'000;
     std::atomic<int64_t> sum_produced{0}, sum_consumed{0};
 
-    std::jthread producer([&] {
+    std::thread producer([&] {
         for (int i = 0; i < N; ++i) {
             buf.push(i);
             sum_produced += i;
         }
     });
 
-    std::jthread consumer([&] {
+    std::thread consumer([&] {
         int count = 0;
         while (count < N) {
             if (auto v = buf.try_pop()) {

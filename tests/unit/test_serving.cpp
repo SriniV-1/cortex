@@ -30,7 +30,7 @@ TEST(KqueuePoller, ConstructAndStop) {
     KqueuePoller poller;
     std::atomic<bool> stopped{false};
 
-    std::jthread t([&] {
+    std::thread t([&] {
         poller.run();
         stopped.store(true);
     });
@@ -43,7 +43,7 @@ TEST(KqueuePoller, ConstructAndStop) {
 
 TEST(KqueuePoller, WakeupUnblocks) {
     KqueuePoller poller;
-    std::jthread t([&] { poller.run(); });
+    std::thread t([&] { poller.run(); });
 
     // wakeup() + stop() both unblock run()
     poller.wakeup();
@@ -68,7 +68,7 @@ TEST(KqueuePoller, PipeReadableEvent) {
                    }
                });
 
-    std::jthread t([&] { poller.run(); });
+    std::thread t([&] { poller.run(); });
 
     // Write to pipe to trigger readable event
     char b = 'x';
@@ -132,7 +132,7 @@ protected:
         cfg.port = kPort;
         // No DB — /players endpoint will return 500, that's OK for these tests
         server_ = std::make_unique<HttpServer>(cfg, acc_);
-        server_thread_ = std::jthread([this] { server_->run(); });
+        server_thread_ = std::thread([this] { server_->run(); });
         // Wait for server to start
         auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
         while (!server_->running() && std::chrono::steady_clock::now() < deadline)
@@ -141,12 +141,12 @@ protected:
 
     void TearDown() override {
         server_->stop();
-        server_thread_.join();
+        if (server_thread_.joinable()) server_thread_.join();
     }
 
     StatAccumulator acc_;
     std::unique_ptr<HttpServer> server_;
-    std::jthread server_thread_;
+    std::thread server_thread_;
 };
 
 TEST_F(HttpServerTest, HealthEndpoint) {

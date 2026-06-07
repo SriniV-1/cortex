@@ -270,7 +270,7 @@ TEST_F(IntegrationTest, HttpServerServesHealth) {
     cfg.www_root = "";
 
     auto server = std::make_unique<serving::HttpServer>(cfg, acc);
-    std::jthread server_thread([&] { server->run(); });
+    std::thread server_thread([&] { server->run(); });
 
     // Wait for server to come up
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
@@ -330,7 +330,7 @@ TEST_F(IntegrationTest, HttpServerServesLeaderboard) {
     cfg.www_root = "";
 
     auto server = std::make_unique<serving::HttpServer>(cfg, acc);
-    std::jthread server_thread([&] { server->run(); });
+    std::thread server_thread([&] { server->run(); });
 
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
     while (!server->running() && std::chrono::steady_clock::now() < deadline) {

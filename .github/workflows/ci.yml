@@ -51,23 +51,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             cmake ninja-build pkg-config \
-            libpq-dev libspdlog-dev libsimdjson-dev \
+            libpqxx-dev libspdlog-dev libsimdjson-dev \
             libcurl4-openssl-dev libssl-dev \
             libhiredis-dev libgtest-dev \
             redis-server
-
-      - name: Build libpqxx from source (Ubuntu)
-        if: runner.os == 'Linux'
-        run: |
-          curl -sL https://github.com/jtv/libpqxx/archive/refs/tags/7.8.1.tar.gz | tar xz
-          cmake -B pqxx-build -S libpqxx-7.8.1 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_STANDARD=20 \
-            -DBUILD_SHARED_LIBS=ON \
-            -DSKIP_BUILD_TEST=ON
-          cmake --build pqxx-build -j$(nproc)
-          sudo cmake --install pqxx-build
-          sudo ldconfig
 
       - name: Install ONNX Runtime (Ubuntu)
         if: runner.os == 'Linux'

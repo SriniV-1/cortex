@@ -117,6 +117,7 @@ add_library(cortex_etl_lib STATIC
     src/etl/NBAClient.cpp
     src/etl/BulkInserter.cpp
     src/etl/LiveIngestor.cpp
+    src/compat/pqxx_source_location_shim.cpp
 )
 target_include_directories(cortex_etl_lib PUBLIC
     ${CMAKE_SOURCE_DIR}/include

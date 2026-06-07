@@ -17,15 +17,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     endif()
 endif()
 
-# ── libpqxx ABI compatibility ──────────────────────────────────────────────
-# Ubuntu 24.04 ships libpqxx 7.8.1 compiled without C++20 source_location.
-# Our C++20 build causes pqxx headers to reference source_location-enabled
-# symbols that don't exist in the precompiled library. Disable the feature
-# flag so inline template instantiations match the library ABI.
-if(NOT APPLE)
-    add_compile_definitions(PQXX_HAVE_SOURCE_LOCATION=0)
-endif()
-
 # ── Platform hints ─────────────────────────────────────────────────────────
 # On macOS with Homebrew, add prefix so find_* commands discover packages.
 # On Linux, system paths (/usr/lib, /usr/include) are searched by default.

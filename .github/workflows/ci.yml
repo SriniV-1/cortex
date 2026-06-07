@@ -56,6 +56,16 @@ jobs:
             libhiredis-dev libgtest-dev \
             redis-server
 
+      - name: Patch libpqxx config for C++20 ABI compatibility (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          # Ubuntu's libpqxx was compiled without C++20 source_location, but
+          # the config header enables it. This causes linker errors when our
+          # C++20 code instantiates pqxx templates that reference the missing
+          # source_location-enabled symbols. Remove the define to match the ABI.
+          sudo sed -i '/#define PQXX_HAVE_SOURCE_LOCATION/d' \
+            /usr/include/pqxx/config-public-compiler.h
+
       - name: Install ONNX Runtime (Ubuntu)
         if: runner.os == 'Linux'
         run: |

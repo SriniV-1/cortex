@@ -63,8 +63,15 @@ jobs:
           # the config header enables it. This causes linker errors when our
           # C++20 code instantiates pqxx templates that reference the missing
           # source_location-enabled symbols. Remove the define to match the ABI.
+          echo "=== Config file contents ==="
+          cat /usr/include/pqxx/config-public-compiler.h
+          echo "=== Searching for SOURCE_LOCATION in all pqxx headers ==="
+          grep -rn "SOURCE_LOCATION" /usr/include/pqxx/ || echo "Not found"
           sudo sed -i '/#define PQXX_HAVE_SOURCE_LOCATION/d' \
             /usr/include/pqxx/config-public-compiler.h
+          # Also patch any other config file that might define it
+          sudo find /usr/include/pqxx -name "*.h" -exec \
+            sed -i '/#define PQXX_HAVE_SOURCE_LOCATION/d' {} +
 
       - name: Install ONNX Runtime (Ubuntu)
         if: runner.os == 'Linux'

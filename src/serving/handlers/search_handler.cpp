@@ -71,13 +71,13 @@ void handle_search_players(Request& req, Response& res, ServerContext& ctx) {
                 "HAVING (COALESCE(SUM(pgs.points), 0), p.player_id) < ($2, $3) "
                 "ORDER BY COALESCE(SUM(pgs.points), 0) DESC, p.player_id DESC "
                 "LIMIT $4",
-                query, cursor_pts, cursor_player_id, fetch_limit);
+                query.c_str(), cursor_pts, cursor_player_id, fetch_limit);
         } else {
             r = txn.exec_params(
                 base_sql +
                 "ORDER BY COALESCE(SUM(pgs.points), 0) DESC, p.player_id DESC "
                 "LIMIT $2",
-                query, fetch_limit);
+                query.c_str(), fetch_limit);
         }
         txn.commit();
 
@@ -170,11 +170,11 @@ void handle_search_games(Request& req, Response& res, ServerContext& ctx) {
             r = txn.exec_params(
                 sql + "AND g.game_id < $2 "
                 "ORDER BY g.game_date DESC, g.game_id DESC LIMIT $3",
-                team, cursor_game_id, fetch_limit);
+                team.c_str(), cursor_game_id.c_str(), fetch_limit);
         } else {
             r = txn.exec_params(
                 sql + "ORDER BY g.game_date DESC, g.game_id DESC LIMIT $2",
-                team, fetch_limit);
+                team.c_str(), fetch_limit);
         }
         txn.commit();
 
@@ -267,26 +267,26 @@ void handle_search_events(Request& req, Response& res, ServerContext& ctx) {
             r = txn.exec_params(
                 sql + "AND pe.player_id = $1 AND pe.action_type = $2 AND pe.game_id = $3 "
                 "ORDER BY pe.occurred_at DESC LIMIT $4",
-                pid_val, action, game_id, limit_n);
+                pid_val, action.c_str(), game_id.c_str(), limit_n);
         } else if (!pid_str.empty() && !action.empty()) {
             bool valid = std::find(valid_actions.begin(), valid_actions.end(), action) != valid_actions.end();
             if (!valid) { res.json(R"({"error":"invalid action_type"})", 400); return; }
             r = txn.exec_params(
                 sql + "AND pe.player_id = $1 AND pe.action_type = $2 "
                 "ORDER BY pe.occurred_at DESC LIMIT $3",
-                pid_val, action, limit_n);
+                pid_val, action.c_str(), limit_n);
         } else if (!pid_str.empty() && !game_id.empty()) {
             r = txn.exec_params(
                 sql + "AND pe.player_id = $1 AND pe.game_id = $2 "
                 "ORDER BY pe.action_number ASC LIMIT $3",
-                pid_val, game_id, limit_n);
+                pid_val, game_id.c_str(), limit_n);
         } else if (!game_id.empty() && !action.empty()) {
             bool valid = std::find(valid_actions.begin(), valid_actions.end(), action) != valid_actions.end();
             if (!valid) { res.json(R"({"error":"invalid action_type"})", 400); return; }
             r = txn.exec_params(
                 sql + "AND pe.game_id = $1 AND pe.action_type = $2 "
                 "ORDER BY pe.action_number ASC LIMIT $3",
-                game_id, action, limit_n);
+                game_id.c_str(), action.c_str(), limit_n);
         } else if (!pid_str.empty()) {
             r = txn.exec_params(
                 sql + "AND pe.player_id = $1 ORDER BY pe.occurred_at DESC LIMIT $2",
@@ -294,13 +294,13 @@ void handle_search_events(Request& req, Response& res, ServerContext& ctx) {
         } else if (!game_id.empty()) {
             r = txn.exec_params(
                 sql + "AND pe.game_id = $1 ORDER BY pe.action_number ASC LIMIT $2",
-                game_id, limit_n);
+                game_id.c_str(), limit_n);
         } else if (!action.empty()) {
             bool valid = std::find(valid_actions.begin(), valid_actions.end(), action) != valid_actions.end();
             if (!valid) { res.json(R"({"error":"invalid action_type"})", 400); return; }
             r = txn.exec_params(
                 sql + "AND pe.action_type = $1 ORDER BY pe.occurred_at DESC LIMIT $2",
-                action, limit_n);
+                action.c_str(), limit_n);
         }
         txn.commit();
 

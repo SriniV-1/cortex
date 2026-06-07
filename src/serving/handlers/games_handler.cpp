@@ -59,7 +59,7 @@ void handle_games_recent(Request& req, Response& res, ServerContext& ctx) {
                 std::string("g.game_id < $1 ");
             r = txn.exec_params(
                 base_sql + where_clause + cursor_cond + order_clause + "LIMIT $2",
-                cursor_game_id, fetch_limit);
+                cursor_game_id.c_str(), fetch_limit);
         } else {
             r = txn.exec_params(
                 base_sql + where_clause + order_clause + "LIMIT $1",

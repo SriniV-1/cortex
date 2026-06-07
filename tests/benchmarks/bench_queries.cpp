@@ -115,7 +115,7 @@ static Stats bench_game_events(pqxx::connection& conn,
     for (int i = 0; i < iterations; ++i) {
         const auto& gid = game_ids[i % game_ids.size()];
         auto t0 = Clock::now();
-        auto r  = txn.exec_prepared("q_game_events", gid);
+        auto r  = txn.exec_prepared("q_game_events", gid.c_str());
         auto t1 = Clock::now();
         samples.push_back(Duration(t1 - t0).count());
         (void)r;
@@ -147,7 +147,7 @@ static Stats bench_player_season(pqxx::connection& conn,
     for (int i = 0; i < iterations; ++i) {
         int pid = player_ids[i % player_ids.size()];
         auto t0 = Clock::now();
-        auto r  = txn.exec_prepared("q_player_season", pid, season_start);
+        auto r  = txn.exec_prepared("q_player_season", pid, season_start.c_str());
         auto t1 = Clock::now();
         samples.push_back(Duration(t1 - t0).count());
         (void)r;
@@ -176,7 +176,7 @@ static Stats bench_game_summary(pqxx::connection& conn,
     for (int i = 0; i < iterations; ++i) {
         const auto& gid = game_ids[i % game_ids.size()];
         auto t0 = Clock::now();
-        auto r  = txn.exec_prepared("q_game_summary", gid);
+        auto r  = txn.exec_prepared("q_game_summary", gid.c_str());
         auto t1 = Clock::now();
         samples.push_back(Duration(t1 - t0).count());
         (void)r;
@@ -207,7 +207,7 @@ static Stats bench_time_range_summary(pqxx::connection& conn, int iterations) {
     for (int i = 0; i < iterations; ++i) {
         const auto& w = windows[i % windows.size()];
         auto t0 = Clock::now();
-        auto r  = txn.exec_prepared("q_time_range_summary", w);
+        auto r  = txn.exec_prepared("q_time_range_summary", w.c_str());
         auto t1 = Clock::now();
         samples.push_back(Duration(t1 - t0).count());
         (void)r;
@@ -237,7 +237,7 @@ static Stats bench_time_range_raw(pqxx::connection& conn, int iterations) {
     for (int i = 0; i < iterations; ++i) {
         const auto& w = windows[i % windows.size()];
         auto t0 = Clock::now();
-        auto r  = txn.exec_prepared("q_time_range_raw", w);
+        auto r  = txn.exec_prepared("q_time_range_raw", w.c_str());
         auto t1 = Clock::now();
         samples.push_back(Duration(t1 - t0).count());
         (void)r;

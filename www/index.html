@@ -650,43 +650,100 @@
     .ticker-track { animation: none !important; }
   }
 
-  /* ════════ Court broadcast hero (signature) ════════ */
+  /* ════════════════════════════════════════════════════════════════════
+     THE COURT — whole page laid on hardwood with court markings
+     ════════════════════════════════════════════════════════════════════ */
+  :root {
+    --wood-base:  #2b1d10;
+    --wood-plank: rgba(0,0,0,0.22);
+    --wood-grain: rgba(255,214,170,0.05);
+    --court-line: rgba(245,236,222,0.11);
+  }
+  [data-theme="light"] {
+    --wood-base:  #e0bd86;
+    --wood-plank: rgba(110,70,30,0.16);
+    --wood-grain: rgba(110,70,30,0.05);
+    --court-line: rgba(90,55,25,0.18);
+  }
+  /* Hardwood floor across the whole page */
+  body {
+    background-color: var(--wood-base);
+    background-image:
+      repeating-linear-gradient(90deg, var(--wood-plank) 0 1.5px, transparent 1.5px 76px),
+      repeating-linear-gradient(0deg, var(--wood-grain) 0 3px, transparent 3px 9px),
+      linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.12));
+    background-attachment: fixed;
+  }
+  body::before { background: radial-gradient(80% 60% at 50% -8%, rgba(255,106,61,0.08), transparent 60%); }
+  body::after { background: none; }
+
+  /* Painted court lines the content scrolls over */
+  .court-bg { position: fixed; top: 0; bottom: 0; left: var(--rail-w); right: 0; z-index: 0; display: flex; justify-content: center; pointer-events: none; }
+  .court-bg svg { width: auto; height: 96%; color: var(--court-line); }
+  main { position: relative; z-index: 1; }
+  .rail { z-index: 60; }
+
+  /* Rail as the sideline / scorer's table */
+  .rail { border-right: 2px solid var(--court-line); }
+  .rail-link .rl-no {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; border: 1.5px solid var(--court-line); border-radius: 50%;
+    font-size: 10px; min-width: 24px;
+  }
+  .rail-link:hover .rl-no { border-color: var(--orange); color: var(--orange); }
+
+  /* ════════ Center-court hero — hardwood, hoop & a real basketball ════════ */
   .court-hero {
     position: relative; overflow: hidden;
-    border: 1px solid var(--border); border-radius: var(--radius);
+    border: 1px solid rgba(245,236,222,0.14); border-radius: var(--radius);
+    display: grid; grid-template-columns: 1.05fr 1fr; align-items: stretch; min-height: 252px;
+    color: #f6ecdb;
     background:
-      radial-gradient(130% 170% at 100% 50%, rgba(255,106,61,0.12), transparent 55%),
-      linear-gradient(120deg, var(--card-2), var(--card));
-    box-shadow: var(--shadow);
-    display: grid; grid-template-columns: 1.05fr 1fr; align-items: stretch; min-height: 232px;
+      linear-gradient(120deg, rgba(28,16,7,0.08), rgba(20,11,4,0.55)),
+      repeating-linear-gradient(90deg, rgba(0,0,0,0.16) 0 1px, transparent 1px 60px),
+      repeating-linear-gradient(0deg, rgba(255,214,170,0.05) 0 2px, transparent 2px 7px),
+      linear-gradient(165deg, #714827 0%, #5a371d 46%, #432a15 100%);
+    box-shadow: var(--shadow-md);
   }
-  .court-hero-copy { padding: 36px 34px; align-self: center; position: relative; z-index: 2; }
-  .ch-eyebrow {
-    font-family: var(--mono); font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
-    color: var(--orange); margin-bottom: 16px; display: flex; align-items: center; gap: 9px;
-  }
-  .ch-eyebrow::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px rgba(47,224,160,0.18); animation: pulse 2.4s ease-in-out infinite; }
-  .ch-title { font-family: var(--display); font-size: clamp(36px, 5.2vw, 62px); line-height: .88; letter-spacing: -0.5px; color: var(--text); margin-bottom: 16px; }
-  .ch-title .acc { color: var(--orange); }
-  .ch-sub { font-family: var(--mono); font-size: 11.5px; letter-spacing: .4px; color: var(--text2); line-height: 1.7; }
+  .court-hero-copy { padding: 40px 36px; align-self: center; position: relative; z-index: 2; }
+  .ch-eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: #ffce9a; margin-bottom: 16px; display: flex; align-items: center; gap: 9px; }
+  .ch-eyebrow::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #46e6a4; box-shadow: 0 0 0 3px rgba(70,230,164,0.22); animation: pulse 2.4s ease-in-out infinite; }
+  .ch-title { font-family: var(--display); font-size: clamp(36px, 5.2vw, 60px); line-height: .88; letter-spacing: -0.5px; color: #f7eedd; margin-bottom: 16px; text-shadow: 0 2px 14px rgba(0,0,0,0.4); }
+  .ch-title .acc { color: #ff8a4d; }
+  .ch-sub { font-family: var(--mono); font-size: 11.5px; letter-spacing: .4px; color: #d8c3a6; line-height: 1.7; }
   .court-stage { position: relative; }
-  .court-svg { position: absolute; inset: 0; width: 100%; height: 100%; color: var(--border-2); }
-  .court-svg .shot-traj { stroke: rgba(255,106,61,0.5); stroke-width: 1.5; stroke-dasharray: 3 6; }
-  .court-svg .hoop { fill: none; stroke: var(--orange); stroke-width: 2.5; filter: drop-shadow(0 0 6px rgba(255,106,61,0.85)); animation: hoopPulse 2.8s ease-in-out infinite; }
-  @keyframes hoopPulse { 0%,55%{ stroke-width: 2.5; } 64%{ stroke-width: 5.5; } 78%,100%{ stroke-width: 2.5; } }
-  .court-svg .ball circle { fill: var(--orange); filter: drop-shadow(0 0 9px rgba(255,106,61,0.75)); }
+  .court-svg { position: absolute; inset: 0; width: 100%; height: 100%; color: rgba(245,236,222,0.3); }
+  .court-svg .court-lines { stroke: rgba(245,236,222,0.3); }
+  .court-svg .shot-traj { stroke: rgba(255,160,110,0.55); stroke-width: 1.5; stroke-dasharray: 2 7; }
+  .court-svg .board { fill: rgba(255,255,255,0.05); stroke: rgba(245,236,222,0.55); stroke-width: 2; }
+  .court-svg .target { fill: none; stroke: #ff8a4d; stroke-width: 2; }
+  .court-svg .rim { fill: none; stroke: #ff6a3d; stroke-width: 3.5; filter: drop-shadow(0 0 6px rgba(255,106,61,0.85)); animation: hoopPulse 3s ease-in-out infinite; }
+  .court-svg .net { stroke: rgba(245,236,222,0.5); stroke-width: 1; fill: none; }
+  @keyframes hoopPulse { 0%,52%{ stroke-width: 3.5; } 62%{ stroke-width: 6; } 78%,100%{ stroke-width: 3.5; } }
+  @media (max-width: 960px) { .court-bg { left: 0; } }
   @media (max-width: 760px) {
     .court-hero { grid-template-columns: 1fr; min-height: 0; }
-    .court-stage { min-height: 150px; }
-    .court-hero-copy { padding: 24px 20px 8px; }
+    .court-stage { min-height: 170px; }
+    .court-hero-copy { padding: 26px 22px 10px; }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .court-svg .ball, .court-svg .hoop, .ch-eyebrow::before { animation: none !important; }
-  }
+  @media (prefers-reduced-motion: reduce) { .court-svg .rim, .ch-eyebrow::before { animation: none !important; } }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
+<div class="court-bg" aria-hidden="true">
+  <svg viewBox="0 0 500 820" preserveAspectRatio="xMidYMid meet" fill="none" stroke="currentColor">
+    <rect x="12" y="12" width="476" height="796" rx="8" stroke-width="2"/>
+    <line x1="12" y1="12" x2="488" y2="12" stroke-width="2"/>
+    <circle cx="250" cy="12" r="64" stroke-width="2"/>
+    <rect x="188" y="612" width="124" height="196" stroke-width="2"/>
+    <circle cx="250" cy="612" r="60" stroke-width="2"/>
+    <path d="M216,756 A 34 34 0 0 0 284 756" stroke-width="2"/>
+    <line x1="216" y1="748" x2="284" y2="748" stroke-width="3"/>
+    <circle cx="250" cy="760" r="9" stroke-width="2.5"/>
+    <path d="M64,808 L64,694 A 186 186 0 0 1 436 694 L436,808" stroke-width="2"/>
+  </svg>
+</div>
 
 <aside class="rail" id="top">
   <div class="rail-head">
@@ -740,18 +797,52 @@
     </div>
     <div class="court-stage">
       <svg class="court-svg" viewBox="0 0 600 260" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <defs>
+          <radialGradient id="bball" cx="38%" cy="32%" r="78%">
+            <stop offset="0%" stop-color="#ffb277"/>
+            <stop offset="52%" stop-color="#ff6a3d"/>
+            <stop offset="100%" stop-color="#b93a18"/>
+          </radialGradient>
+          <radialGradient id="bshine" cx="34%" cy="28%" r="44%">
+            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.5"/>
+            <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <!-- floor markings -->
         <g class="court-lines" fill="none" stroke="currentColor" stroke-width="1.4">
-          <line x1="566" y1="38" x2="566" y2="222"/>
-          <rect x="446" y="96" width="120" height="68"/>
-          <circle cx="446" cy="130" r="34"/>
-          <path d="M566,54 A 152 152 0 0 0 566 206"/>
-          <path d="M566,112 A 26 26 0 0 0 566 148"/>
+          <line x1="36" y1="236" x2="564" y2="236"/>
+          <path d="M150,236 A 116 116 0 0 1 450 236"/>
         </g>
-        <path id="shotPath" class="shot-traj" d="M110,210 Q340,24 540,128" fill="none"/>
-        <circle class="hoop" cx="540" cy="128" r="9"/>
-        <g class="ball">
-          <circle r="9"/>
-          <animateMotion dur="2.8s" repeatCount="indefinite" keyPoints="0;1;1" keyTimes="0;0.62;1" calcMode="linear">
+        <!-- hoop: backboard, target, rim, net -->
+        <g class="hoop-grp">
+          <rect class="board" x="470" y="32" width="100" height="92" rx="3"/>
+          <rect class="target" x="500" y="72" width="40" height="30"/>
+          <ellipse class="rim" cx="520" cy="124" rx="38" ry="10"/>
+          <g class="net">
+            <line x1="485" y1="126" x2="503" y2="166"/>
+            <line x1="498" y1="129" x2="511" y2="166"/>
+            <line x1="511" y1="130" x2="517" y2="167"/>
+            <line x1="520" y1="130" x2="520" y2="168"/>
+            <line x1="529" y1="130" x2="523" y2="167"/>
+            <line x1="542" y1="129" x2="529" y2="166"/>
+            <line x1="555" y1="126" x2="537" y2="166"/>
+            <path d="M485,126 Q520,150 555,126"/>
+            <path d="M498,150 Q520,160 542,150"/>
+          </g>
+        </g>
+        <!-- shot trajectory -->
+        <path id="shotPath" class="shot-traj" d="M64,214 Q300,16 520,122" fill="none"/>
+        <!-- realistic basketball -->
+        <g class="bball">
+          <circle r="14" fill="url(#bball)"/>
+          <circle r="14" fill="url(#bshine)"/>
+          <g class="seams" stroke="#3a1c0e" stroke-width="1.5" fill="none" stroke-linecap="round">
+            <line x1="0" y1="-14" x2="0" y2="14"/>
+            <line x1="-14" y1="0" x2="14" y2="0"/>
+            <path d="M0,-14 C-10,-7 -10,7 0,14"/>
+            <path d="M0,-14 C10,-7 10,7 0,14"/>
+          </g>
+          <animateMotion dur="3s" repeatCount="indefinite" keyPoints="0;1;1" keyTimes="0;0.6;1" calcMode="spline" keySplines="0.34 0 0.5 1; 0 0 1 1">
             <mpath href="#shotPath"/>
           </animateMotion>
         </g>

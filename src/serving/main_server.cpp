@@ -17,6 +17,8 @@
 #include "etl/LiveIngestor.hpp"
 #include "etl/NBAClient.hpp"
 #include "etl/BulkInserter.hpp"
+#include "distributed/Coordinator.hpp"
+#include "distributed/IngestorNode.hpp"
 #include "common/Logger.hpp"
 
 #include <pqxx/pqxx>
@@ -59,6 +61,19 @@ int main(int argc, char** argv) {
     std::string model_path = "data/models/win_prob.onnx";
     std::string log_file;
 
+    // Auth secrets. When jwt_secret is non-empty the HTTP server enforces JWT
+    // auth + RBAC on all non-exempt routes; api_key gates token issuance via
+    // POST /api/auth/token. Both default to the environment so secrets are
+    // never baked into argv (visible in `ps`). CLI flags override env.
+    std::string jwt_secret = []{ const char* v = std::getenv("CORTEX_JWT_SECRET"); return v ? std::string(v) : std::string(); }();
+    std::string api_key    = []{ const char* v = std::getenv("CORTEX_API_KEY");    return v ? std::string(v) : std::string(); }();
+
+    // Distributed cluster flags.
+    std::string mode = "standalone";   // standalone | coordinator | worker
+    std::string coordinator_addr;      // worker mode: coordinator gRPC address
+    int         grpc_port = 50051;     // coordinator mode: gRPC listen port
+    int         capacity  = 20;        // worker mode: max games
+
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--port") == 0 && i + 1 < argc)
             port = static_cast<uint16_t>(std::atoi(argv[++i]));
@@ -76,10 +91,66 @@ int main(int argc, char** argv) {
             www_root = argv[++i];
         if (std::strcmp(argv[i], "--log") == 0 && i + 1 < argc)
             log_file = argv[++i];
+        if (std::strcmp(argv[i], "--mode") == 0 && i + 1 < argc)
+            mode = argv[++i];
+        if (std::strcmp(argv[i], "--coordinator") == 0 && i + 1 < argc)
+            coordinator_addr = argv[++i];
+        if (std::strcmp(argv[i], "--grpc-port") == 0 && i + 1 < argc)
+            grpc_port = std::atoi(argv[++i]);
+        if (std::strcmp(argv[i], "--capacity") == 0 && i + 1 < argc)
+            capacity = std::atoi(argv[++i]);
+        if (std::strcmp(argv[i], "--jwt-secret") == 0 && i + 1 < argc)
+            jwt_secret = argv[++i];
+        if (std::strcmp(argv[i], "--api-key") == 0 && i + 1 < argc)
+            api_key = argv[++i];
     }
 
     auto log = cortex::get_logger("main");
-    log->info("Cortex server starting on port {}", port);
+    log->info("Cortex server starting on port {} (mode={})", port, mode);
+
+    // ── Distributed modes ────────────────────────────────────────────────
+    if (mode == "coordinator") {
+        distributed::Coordinator::Config coord_cfg;
+        coord_cfg.grpc_address = "0.0.0.0:" + std::to_string(grpc_port);
+        auto coordinator = std::make_unique<distributed::Coordinator>(coord_cfg);
+        coordinator->start();
+        log->info("Coordinator mode — gRPC on port {}, HTTP on port {}", grpc_port, port);
+
+        // Still run the HTTP server for dashboard + cluster status API.
+        // (Falls through to normal HTTP server setup below.)
+    }
+
+    if (mode == "worker") {
+        if (coordinator_addr.empty()) {
+            log->error("Worker mode requires --coordinator <host:port>");
+            return 1;
+        }
+
+        distributed::IngestorNode::Config worker_cfg;
+        worker_cfg.coordinator_address = coordinator_addr;
+        worker_cfg.host = "0.0.0.0";
+        worker_cfg.http_port = port;
+        worker_cfg.capacity = capacity;
+        auto worker_node = std::make_unique<distributed::IngestorNode>(worker_cfg);
+        worker_node->start();
+
+        log->info("Worker mode — coordinator={}, capacity={}", coordinator_addr, capacity);
+
+        // Block until shutdown signal.
+        struct sigaction sa{};
+        sa.sa_handler = handle_signal;
+        ::sigaction(SIGINT,  &sa, nullptr);
+        ::sigaction(SIGTERM, &sa, nullptr);
+
+        log->info("Worker {} ready. Ctrl+C to stop.", worker_node->worker_id());
+        while (!g_shutdown.load()) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+
+        worker_node->stop();
+        log->info("Worker shutdown complete.");
+        return 0;
+    }
 
     // ── Infrastructure ────────────────────────────────────────────────────
     RingBuffer<StreamEvent> ring(65536);
@@ -174,71 +245,129 @@ int main(int argc, char** argv) {
         } catch (...) {}
     };
 
+    // Helper: run the full ETL pipeline for a single game (boxscore + play-by-play).
+    // Returns true if a new game was inserted.
+    auto load_game_full = [](cortex::etl::NBAClient& client,
+                             cortex::etl::BulkInserter& inserter,
+                             const std::string& gid, int season,
+                             std::shared_ptr<spdlog::logger> lg) -> bool {
+        // Step 1: boxscore → teams, players, game metadata
+        auto bs = client.fetch_boxscore(gid);
+        if (bs) {
+            inserter.ensure_team(bs->home_team);
+            inserter.ensure_team(bs->away_team);
+            inserter.upsert_game(bs->game);
+            auto all_players = bs->home_players;
+            all_players.insert(all_players.end(),
+                               bs->away_players.begin(),
+                               bs->away_players.end());
+            inserter.upsert_players(all_players);
+        }
+        // Step 2: play-by-play → play_events
+        auto pbp = client.fetch_play_by_play(gid);
+        if (pbp) {
+            int64_t n = inserter.bulk_insert_play_by_play(*pbp, season);
+            return n > 0;
+        }
+        return false;
+    };
+
+    // Helper: refresh materialized view and rebuild Elo after new games are loaded.
+    auto post_load_refresh = [&db_conn, &elo_tracker](
+            std::shared_ptr<spdlog::logger> lg) {
+        try {
+            pqxx::connection mv_conn(db_conn);
+            pqxx::work mv_txn(mv_conn);
+            lg->info("Refreshing player_game_stats materialized view…");
+            mv_txn.exec("REFRESH MATERIALIZED VIEW CONCURRENTLY player_game_stats");
+            mv_txn.commit();
+            lg->info("Materialized view refreshed.");
+        } catch (const std::exception& e) {
+            lg->warn("Materialized view refresh failed: {}", e.what());
+        }
+        // Rebuild Elo ratings so rankings reflect newly loaded games.
+        try {
+            pqxx::connection elo_conn(db_conn);
+            elo_tracker.build_from_db(elo_conn);
+            elo_tracker.save_to_db(elo_conn);
+            lg->info("Elo ratings rebuilt.");
+        } catch (const std::exception& e) {
+            lg->warn("Elo rebuild failed: {}", e.what());
+        }
+    };
+
+    // ── Daily refresh: runs immediately on startup, then every day at 4 AM ──
     std::thread daily_refresher;
     if (!db_conn.empty()) {
         daily_refresher = std::thread([&, current_nba_season, secs_until_4am,
-                                        interruptible_sleep, truncate_log]() {
+                                        interruptible_sleep, truncate_log,
+                                        load_game_full, post_load_refresh]() {
             auto rlog = cortex::get_logger("refresh");
-            // Wait until next 4 AM before the first run.
-            long wait = secs_until_4am();
-            rlog->info("Daily refresh scheduled in {:.1f} hours", wait / 3600.0);
-            interruptible_sleep(wait);
+            bool first_run = true;
 
             while (!bg_stop.load(std::memory_order_acquire)) {
+                if (first_run) {
+                    rlog->info("Startup refresh: checking for new games…");
+                    first_run = false;
+                } else {
+                    long wait = secs_until_4am();
+                    rlog->info("Next daily refresh in {:.1f} hours", wait / 3600.0);
+                    interruptible_sleep(wait);
+                    if (bg_stop.load(std::memory_order_acquire)) break;
+                }
+
                 int season = current_nba_season();
-                rlog->info("Daily refresh: loading season {} (regular + playoffs) …", season);
+                rlog->info("Loading season {} (regular + playoffs) …", season);
                 try {
                     cortex::etl::NBAClient   client(150);
                     cortex::etl::BulkInserter inserter(db_conn);
                     int new_games = 0;
+                    int consecutive_miss = 0;
+                    int seen_any = 0;  // games loaded or newly inserted
 
                     // Regular season
                     auto reg_ids = cortex::etl::NBAClient::game_ids_for_season(season, 1230, 2);
                     for (const auto& gid : reg_ids) {
                         if (bg_stop.load(std::memory_order_acquire)) break;
-                        auto pbp = client.fetch_play_by_play(gid);
-                        if (pbp) {
-                            int64_t n = inserter.bulk_insert_play_by_play(*pbp, season);
-                            if (n > 0) ++new_games;
+                        if (inserter.is_game_loaded(gid)) {
+                            consecutive_miss = 0;
+                            ++seen_any;
+                            continue;
                         }
+                        if (load_game_full(client, inserter, gid, season, rlog))
+                            { ++new_games; ++seen_any; consecutive_miss = 0; }
+                        else
+                            { if (++consecutive_miss >= 30 && seen_any > 0) break; }
                     }
 
-                    // Playoffs (up to 400 IDs covers all rounds)
-                    auto po_ids = cortex::etl::NBAClient::game_ids_for_season(season, 400, 4);
+                    // Playoffs
+                    consecutive_miss = 0;
+                    seen_any = 0;
+                    auto po_ids = cortex::etl::NBAClient::game_ids_for_season(season, 500, 4);
                     for (const auto& gid : po_ids) {
                         if (bg_stop.load(std::memory_order_acquire)) break;
-                        auto pbp = client.fetch_play_by_play(gid);
-                        if (pbp) {
-                            int64_t n = inserter.bulk_insert_play_by_play(*pbp, season);
-                            if (n > 0) ++new_games;
+                        if (inserter.is_game_loaded(gid)) {
+                            consecutive_miss = 0;
+                            ++seen_any;
+                            continue;
                         }
+                        if (load_game_full(client, inserter, gid, season, rlog))
+                            { ++new_games; ++seen_any; consecutive_miss = 0; }
+                        else
+                            { if (++consecutive_miss >= 120 && seen_any > 0) break; }
                     }
 
-                    rlog->info("Daily refresh complete: {} new games inserted", new_games);
-
-                    // Refresh materialized view so leaderboard picks up new data.
-                    if (new_games > 0) {
-                        try {
-                            pqxx::connection mv_conn(db_conn);
-                            pqxx::work mv_txn(mv_conn);
-                            rlog->info("Refreshing player_game_stats materialized view…");
-                            mv_txn.exec("REFRESH MATERIALIZED VIEW CONCURRENTLY player_game_stats");
-                            mv_txn.commit();
-                            rlog->info("Materialized view refreshed.");
-                        } catch (const std::exception& e) {
-                            rlog->warn("Materialized view refresh failed: {}", e.what());
-                        }
-                    }
+                    rlog->info("Refresh complete: {} new games inserted", new_games);
+                    if (new_games > 0) post_load_refresh(rlog);
                 } catch (const std::exception& e) {
-                    rlog->warn("Daily refresh failed: {}", e.what());
+                    rlog->warn("Refresh failed: {}", e.what());
                 }
-                // Truncate log file to prevent unbounded disk growth.
                 truncate_log(1000);
-                // Sleep until next 4 AM.
-                interruptible_sleep(secs_until_4am());
             }
         });
     }
+
+    // Game completion callback — wired below after LiveIngestor is created.
 
     // Win probability model (optional — degrades gracefully if file missing)
     std::unique_ptr<WinProbModel> win_prob_model;
@@ -253,6 +382,28 @@ int main(int argc, char** argv) {
     std::unique_ptr<LiveIngestor> ingestor;
     if (enable_live) {
         ingestor = std::make_unique<LiveIngestor>(ring, poll_interval_ms);
+
+        // When a game ends, persist it to the DB on the next poll cycle (~30s).
+        if (!db_conn.empty()) {
+            ingestor->on_game_complete(
+                [&db_conn, &elo_tracker, current_nba_season,
+                 load_game_full, post_load_refresh](const std::string& game_id) {
+                    auto clog = cortex::get_logger("completion");
+                    try {
+                        cortex::etl::NBAClient    client(50);
+                        cortex::etl::BulkInserter inserter(db_conn);
+                        if (inserter.is_game_loaded(game_id)) return;
+
+                        int season = current_nba_season();
+                        if (load_game_full(client, inserter, game_id, season, clog)) {
+                            clog->info("Persisted completed game {}", game_id);
+                            post_load_refresh(clog);
+                        }
+                    } catch (const std::exception& e) {
+                        clog->warn("Failed to persist game {}: {}", game_id, e.what());
+                    }
+                });
+        }
     }
 
     // ── Stream processor ──────────────────────────────────────────────────
@@ -266,6 +417,20 @@ int main(int argc, char** argv) {
     server_cfg.game_state_index  = &sim_index;
     server_cfg.elo_tracker       = &elo_tracker;
     server_cfg.live_ingestor     = ingestor.get();
+    server_cfg.jwt_secret        = jwt_secret;
+    server_cfg.api_key           = api_key;
+
+    if (jwt_secret.empty()) {
+        log->warn("AUTH DISABLED: no JWT secret configured — all endpoints are "
+                  "open, including POST/admin routes. Set CORTEX_JWT_SECRET (and "
+                  "CORTEX_API_KEY for token issuance) before exposing this server "
+                  "beyond localhost.");
+    } else {
+        log->info("Auth enabled: JWT/RBAC enforced on non-exempt routes.");
+        if (api_key.empty())
+            log->warn("CORTEX_API_KEY unset — POST /api/auth/token cannot issue "
+                      "tokens until it is configured.");
+    }
 
     HttpServer server(server_cfg, accumulator);
     g_server = &server;
@@ -363,8 +528,8 @@ int main(int argc, char** argv) {
     bg_stop.store(true, std::memory_order_release);
     if (stat_evictor.joinable())    stat_evictor.join();
     if (daily_refresher.joinable()) daily_refresher.join();
-    if (elo_builder.joinable())     elo_builder.join();
-    if (sim_builder.joinable())     sim_builder.join();
+    if (elo_builder.joinable())       elo_builder.join();
+    if (sim_builder.joinable())       sim_builder.join();
 
     log->info("Shutdown complete.");
     return 0;

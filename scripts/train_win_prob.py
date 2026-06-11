@@ -24,11 +24,10 @@ import sys
 import numpy as np
 import psycopg2
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold
+from sklearn.calibration import calibration_curve
 from sklearn.metrics import accuracy_score, log_loss, roc_auc_score
 import onnx
-from skl2onnx import convert_sklearn
-from skl2onnx.common.data_types import FloatTensorType
 
 DB_CONN = os.environ.get("CORTEX_DB", "host=localhost port=5433 dbname=cortex")
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "models", "win_prob.onnx")
@@ -119,61 +118,162 @@ def fetch_training_data(conn) -> tuple:
     return np.array(X_rows, dtype=np.float32), np.array(y_rows, dtype=np.int32)
 
 
-def train_and_export(X: np.ndarray, y: np.ndarray):
-    """Train logistic regression and export to ONNX."""
+FEATURE_NAMES = [
+    "score_diff", "quarter", "sec_remaining",
+    "home_advantage", "momentum", "elo_diff", "elo_expected",
+]
+
+C_CANDIDATES = [0.01, 0.1, 1.0, 10.0]
+
+
+def evaluate_model(X: np.ndarray, y: np.ndarray) -> float:
+    """
+    Run 5-fold stratified CV with calibration analysis, feature ablation,
+    and hyperparameter search. Returns the best C value.
+    """
     print(f"\nTraining data: {X.shape[0]} samples, {X.shape[1]} features")
     print(f"Home win rate: {y.mean():.3f}")
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
+    # ── Hyperparameter search via 5-fold CV ──────────────────────────
+    print("\n" + "=" * 50)
+    print("Hyperparameter search (5-fold stratified CV)")
+    print("=" * 50)
+
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    best_c = C_CANDIDATES[0]
+    best_mean_auc = -1.0
+
+    for c_val in C_CANDIDATES:
+        fold_aucs = []
+        for train_idx, val_idx in skf.split(X, y):
+            m = LogisticRegression(max_iter=1000, C=c_val, solver="lbfgs", random_state=42)
+            m.fit(X[train_idx], y[train_idx])
+            prob = m.predict_proba(X[val_idx])[:, 1]
+            fold_aucs.append(roc_auc_score(y[val_idx], prob))
+        mean_auc = np.mean(fold_aucs)
+        std_auc = np.std(fold_aucs)
+        print(f"  C={c_val:<6g}  AUC = {mean_auc:.4f} +/- {std_auc:.4f}")
+        if mean_auc > best_mean_auc:
+            best_mean_auc = mean_auc
+            best_c = c_val
+
+    print(f"\n  Best C = {best_c}  (mean AUC = {best_mean_auc:.4f})")
+
+    # ── Detailed 5-fold CV with best C ───────────────────────────────
+    print("\n" + "=" * 50)
+    print(f"Detailed 5-fold CV (C={best_c})")
+    print("=" * 50)
+
+    fold_metrics = {"acc": [], "auc": [], "logloss": [], "ece": []}
+    all_val_probs = np.zeros(len(y))
+    all_val_flags = np.zeros(len(y), dtype=bool)
+
+    for fold_i, (train_idx, val_idx) in enumerate(skf.split(X, y)):
+        m = LogisticRegression(max_iter=1000, C=best_c, solver="lbfgs", random_state=42)
+        m.fit(X[train_idx], y[train_idx])
+        pred = m.predict(X[val_idx])
+        prob = m.predict_proba(X[val_idx])[:, 1]
+
+        acc = accuracy_score(y[val_idx], pred)
+        auc = roc_auc_score(y[val_idx], prob)
+        ll = log_loss(y[val_idx], prob)
+
+        # Per-fold ECE (10 bins)
+        ece = _compute_ece(y[val_idx], prob, n_bins=10)
+
+        fold_metrics["acc"].append(acc)
+        fold_metrics["auc"].append(auc)
+        fold_metrics["logloss"].append(ll)
+        fold_metrics["ece"].append(ece)
+
+        all_val_probs[val_idx] = prob
+        all_val_flags[val_idx] = True
+
+        print(f"  Fold {fold_i + 1}: acc={acc:.4f}  AUC={auc:.4f}  logloss={ll:.4f}  ECE={ece:.4f}")
+
+    for metric in fold_metrics:
+        vals = fold_metrics[metric]
+        print(f"  {metric:>7s} mean={np.mean(vals):.4f} +/- {np.std(vals):.4f}")
+
+    # ── Calibration analysis (aggregated across folds) ───────────────
+    print("\n" + "=" * 50)
+    print("Calibration analysis (reliability diagram)")
+    print("=" * 50)
+
+    assert all_val_flags.all(), "Not all samples were validated"
+    fraction_pos, mean_pred = calibration_curve(y, all_val_probs, n_bins=10, strategy="uniform")
+
+    print(f"  {'Bin':>4s}  {'Pred Mean':>10s}  {'Actual Frac':>12s}  {'Count':>6s}  {'Gap':>8s}")
+    bin_edges = np.linspace(0, 1, 11)
+    for i in range(len(fraction_pos)):
+        lo, hi = bin_edges[i], bin_edges[i + 1]
+        mask = (all_val_probs >= lo) & (all_val_probs < hi)
+        count = mask.sum()
+        gap = abs(fraction_pos[i] - mean_pred[i])
+        print(f"  {i + 1:>4d}  {mean_pred[i]:>10.4f}  {fraction_pos[i]:>12.4f}  {count:>6d}  {gap:>8.4f}")
+
+    overall_ece = _compute_ece(y, all_val_probs, n_bins=10)
+    print(f"\n  Overall ECE = {overall_ece:.4f}")
+
+    # ── Feature ablation ─────────────────────────────────────────────
+    print("\n" + "=" * 50)
+    print("Feature ablation (drop-one, 5-fold CV AUC)")
+    print("=" * 50)
+
+    baseline_auc = best_mean_auc
+    print(f"  {'Feature':>20s}  {'AUC w/o':>8s}  {'Delta':>8s}")
+
+    for feat_i, feat_name in enumerate(FEATURE_NAMES):
+        X_ablated = np.delete(X, feat_i, axis=1)
+        fold_aucs = []
+        for train_idx, val_idx in skf.split(X_ablated, y):
+            m = LogisticRegression(max_iter=1000, C=best_c, solver="lbfgs", random_state=42)
+            m.fit(X_ablated[train_idx], y[train_idx])
+            prob = m.predict_proba(X_ablated[val_idx])[:, 1]
+            fold_aucs.append(roc_auc_score(y[val_idx], prob))
+        ablated_auc = np.mean(fold_aucs)
+        delta = ablated_auc - baseline_auc
+        print(f"  {feat_name:>20s}  {ablated_auc:.4f}    {delta:+.4f}")
+
+    return best_c
+
+
+def _compute_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
+    """Expected Calibration Error: weighted average of per-bin |accuracy - confidence|."""
+    bin_edges = np.linspace(0, 1, n_bins + 1)
+    ece = 0.0
+    for lo, hi in zip(bin_edges[:-1], bin_edges[1:]):
+        mask = (y_prob >= lo) & (y_prob < hi)
+        if mask.sum() == 0:
+            continue
+        bin_acc = y_true[mask].mean()
+        bin_conf = y_prob[mask].mean()
+        ece += mask.sum() / len(y_true) * abs(bin_acc - bin_conf)
+    return ece
+
+
+def export_model(X: np.ndarray, y: np.ndarray, best_c: float):
+    """Train final model on ALL data with best C, export to ONNX."""
+    print("\n" + "=" * 50)
+    print(f"Training final model (C={best_c}) on all {X.shape[0]} samples")
+    print("=" * 50)
 
     model = LogisticRegression(
         max_iter=1000,
-        C=1.0,
+        C=best_c,
         solver="lbfgs",
         random_state=42,
     )
-    model.fit(X_train, y_train)
+    model.fit(X, y)
 
-    # Evaluate
-    y_pred = model.predict(X_test)
-    y_prob = model.predict_proba(X_test)[:, 1]
-
-    acc = accuracy_score(y_test, y_pred)
-    auc = roc_auc_score(y_test, y_prob)
-    ll = log_loss(y_test, y_prob)
-
-    print(f"\nTest accuracy: {acc:.4f}")
-    print(f"Test AUC:      {auc:.4f}")
-    print(f"Test log loss: {ll:.4f}")
-
-    # Feature importance (coefficients)
-    feature_names = [
-        "score_diff", "quarter", "sec_remaining",
-        "home_advantage", "momentum", "elo_diff", "elo_expected"
-    ]
+    # Feature coefficients
     print("\nFeature coefficients:")
-    for name, coef in zip(feature_names, model.coef_[0]):
+    for name, coef in zip(FEATURE_NAMES, model.coef_[0]):
         print(f"  {name:20s} {coef:+.6f}")
     print(f"  {'intercept':20s} {model.intercept_[0]:+.6f}")
 
-    # Export to ONNX
-    initial_type = [("X", FloatTensorType([None, NUM_FEATURES]))]
-    onnx_model = convert_sklearn(
-        model, initial_types=initial_type,
-        target_opset=13,
-        options={id(model): {"zipmap": False}},
-    )
-
-    # Rename output to "win_prob" for compatibility with C++ code
-    # The sklearn converter creates "label" and "probabilities" outputs.
-    # We need to add a post-processing step or just use the probabilities output.
-    # For simplicity, we'll create a clean model manually.
-
-    # Actually, let's build the ONNX model from scratch for exact compatibility
-    # with the existing C++ code (single input "X", single output "win_prob")
-    import onnx
+    # Build ONNX model from scratch for exact C++ compatibility
+    # (single input "X", single output "win_prob")
     from onnx import helper, TensorProto, numpy_helper
 
     W = model.coef_.astype(np.float32)        # shape [1, 7]
@@ -226,7 +326,8 @@ def main():
     conn = psycopg2.connect(DB_CONN)
     try:
         X, y = fetch_training_data(conn)
-        train_and_export(X, y)
+        best_c = evaluate_model(X, y)
+        export_model(X, y, best_c)
     finally:
         conn.close()
 

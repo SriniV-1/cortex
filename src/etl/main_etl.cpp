@@ -45,7 +45,7 @@ static void run_season_load(
         std::shared_ptr<spdlog::logger> log,
         int season_type = 2)   // 2=regular, 4=playoffs
 {
-    int id_count = (season_type == 4) ? 400 : 1230;
+    int id_count = (season_type == 4) ? 500 : 1230;
     auto game_ids = cortex::etl::NBAClient::game_ids_for_season(season, id_count, season_type);
     log->info("Generated {} candidate {} game IDs for season {}",
               game_ids.size(),
@@ -70,7 +70,7 @@ static void run_season_load(
     // exhausted. Stop probing rather than burning time on dead IDs.
     // Playoffs need a higher threshold because game IDs have natural gaps
     // between rounds (e.g., round 2 ends at ~025x, conf finals start at 030x).
-    const int kMaxConsecutiveMiss = (season_type == 4) ? 80 : 30;
+    const int kMaxConsecutiveMiss = (season_type == 4) ? 120 : 30;
     std::atomic<int> consecutive_miss{0};
     std::atomic<bool> stop_early{false};
 

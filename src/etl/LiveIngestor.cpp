@@ -81,16 +81,27 @@ void LiveIngestor::poll_once() {
     int new_events = 0;
 
     for (const auto& gs : games) {
-        if (gs.status != 2) continue;  // 1=scheduled, 3=final
-        ++live_count;
+        if (gs.status == 2) {
+            ++live_count;
+            seen_live_[gs.game_id] = true;
 
-        // Cache team IDs from scoreboard.
-        team_ids_[gs.game_id] = {gs.home_team_id, gs.away_team_id};
+            // Cache team IDs from scoreboard.
+            team_ids_[gs.game_id] = {gs.home_team_id, gs.away_team_id};
 
-        auto pbp = client_.fetch_play_by_play(gs.game_id);
-        if (!pbp) continue;
+            auto pbp = client_.fetch_play_by_play(gs.game_id);
+            if (!pbp) continue;
 
-        new_events += push_new_actions(*pbp);
+            new_events += push_new_actions(*pbp);
+        }
+        else if (gs.status == 3 && on_complete_) {
+            // Game just ended — fire callback if we were tracking it live.
+            auto it = seen_live_.find(gs.game_id);
+            if (it != seen_live_.end() && it->second) {
+                it->second = false;  // fire once
+                log->info("Game {} completed — triggering persist", gs.game_id);
+                on_complete_(gs.game_id);
+            }
+        }
     }
 
     if (live_count > 0)

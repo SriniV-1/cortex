@@ -1,0 +1,83 @@
+# Distributed cluster deployment — 1 coordinator + 3 workers.
+#
+# Usage:
+#   docker compose -f docker-compose.cluster.yml up --build
+#
+# The coordinator runs the gRPC server (port 50051) and HTTP API (port 8080).
+# Workers register with the coordinator and poll assigned live NBA games.
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: cortex
+      POSTGRES_PASSWORD: cortex
+      POSTGRES_DB: cortex
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cortex"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  coordinator:
+    build: .
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    command: >
+      ./cortex_server
+        --mode coordinator
+        --grpc-port 50051
+        --port 8080
+        --db "host=db port=5432 dbname=cortex user=cortex password=cortex"
+        --redis redis
+
+  worker-1:
+    build: .
+    depends_on:
+      - coordinator
+    command: >
+      ./cortex_server
+        --mode worker
+        --coordinator coordinator:50051
+        --port 8081
+        --capacity 20
+
+  worker-2:
+    build: .
+    depends_on:
+      - coordinator
+    command: >
+      ./cortex_server
+        --mode worker
+        --coordinator coordinator:50051
+        --port 8082
+        --capacity 20
+
+  worker-3:
+    build: .
+    depends_on:
+      - coordinator
+    command: >
+      ./cortex_server
+        --mode worker
+        --coordinator coordinator:50051
+        --port 8083
+        --capacity 20
+
+volumes:
+  pgdata:

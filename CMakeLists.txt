@@ -70,6 +70,38 @@ find_package(GTest REQUIRED)
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
 
+# ── gRPC + Protobuf (for distributed cluster) ────────────────────────────────
+# Find gRPC first — it pulls in protobuf as a dependency via find_dependency().
+find_package(gRPC CONFIG REQUIRED)
+# Protobuf targets are now available via gRPC's transitive dependency.
+
+set(PROTO_SRC "${CMAKE_SOURCE_DIR}/proto/cortex.proto")
+set(PROTO_OUT "${CMAKE_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY ${PROTO_OUT})
+
+add_custom_command(
+    OUTPUT "${PROTO_OUT}/cortex.pb.cc" "${PROTO_OUT}/cortex.pb.h"
+           "${PROTO_OUT}/cortex.grpc.pb.cc" "${PROTO_OUT}/cortex.grpc.pb.h"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${PROTO_SRC}" "${PROTO_OUT}/cortex.proto"
+    COMMAND protobuf::protoc
+        --proto_path=.
+        --cpp_out=.
+        --grpc_out=.
+        --plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>
+        cortex.proto
+    WORKING_DIRECTORY "${PROTO_OUT}"
+    DEPENDS "${PROTO_SRC}"
+    COMMENT "Generating gRPC/Protobuf sources from cortex.proto"
+)
+
+add_library(cortex_proto STATIC
+    "${PROTO_OUT}/cortex.pb.cc"
+    "${PROTO_OUT}/cortex.grpc.pb.cc"
+)
+target_include_directories(cortex_proto PUBLIC "${PROTO_OUT}")
+target_link_libraries(cortex_proto PUBLIC gRPC::grpc++ protobuf::libprotobuf)
+
 # hiredis — try pkg-config first, fall back to find_library
 pkg_check_modules(HIREDIS IMPORTED_TARGET hiredis)
 if(NOT HIREDIS_FOUND)
@@ -200,6 +232,22 @@ target_link_libraries(cortex_serving_lib PUBLIC
     OpenSSL::Crypto
 )
 
+# ── Distributed cluster library ───────────────────────────────────────────
+add_library(cortex_distributed_lib STATIC
+    src/distributed/ConsistentHashRing.cpp
+    src/distributed/Coordinator.cpp
+    src/distributed/IngestorNode.cpp
+)
+target_include_directories(cortex_distributed_lib PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
+)
+target_link_libraries(cortex_distributed_lib PUBLIC
+    cortex_common
+    cortex_proto
+    cortex_etl_lib
+    cortex_stream_lib
+)
+
 # ── ETL executable ────────────────────────────────────────────────────────
 add_executable(cortex_etl src/etl/main_etl.cpp)
 target_link_libraries(cortex_etl PRIVATE cortex_etl_lib)
@@ -218,6 +266,7 @@ add_executable(cortex_tests
     tests/unit/test_pagination.cpp
     tests/unit/test_circuit_breaker.cpp
     tests/unit/test_auth.cpp
+    tests/unit/test_hash_ring.cpp
 )
 target_compile_definitions(cortex_tests PRIVATE
     CMAKE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
@@ -227,6 +276,7 @@ target_link_libraries(cortex_tests PRIVATE
     cortex_stream_lib
     cortex_analytics_lib
     cortex_serving_lib
+    cortex_distributed_lib
     GTest::gtest
     GTest::gtest_main
 )
@@ -275,7 +325,7 @@ target_link_libraries(cortex_throughput PRIVATE cortex_stream_lib)
 
 # ── Analytics server ──────────────────────────────────────────────────────
 add_executable(cortex_server src/serving/main_server.cpp)
-target_link_libraries(cortex_server PRIVATE cortex_serving_lib)
+target_link_libraries(cortex_server PRIVATE cortex_serving_lib cortex_distributed_lib)
 target_include_directories(cortex_server PRIVATE ${ORT_INCLUDE_DIR})
 
 # ── WebSocket load test ───────────────────────────────────────────────────

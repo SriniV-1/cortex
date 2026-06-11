@@ -81,7 +81,18 @@ void BulkInserter::upsert_game(const GameSummary& game) {
         "  (game_id, season, season_type, game_date, home_team_id, away_team_id, "
         "   home_score, away_score, status) "
         "VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8, $9) "
-        "ON CONFLICT (game_id) DO NOTHING",
+        // Real upsert: correct the score/status when a more-complete boxscore
+        // arrives. Guards prevent regressions — only update when the incoming
+        // row is at least as advanced (status) as the stored one, and never let
+        // an empty 0-0 fetch overwrite a real final score.
+        "ON CONFLICT (game_id) DO UPDATE SET "
+        "    home_score = EXCLUDED.home_score, "
+        "    away_score = EXCLUDED.away_score, "
+        "    status     = EXCLUDED.status, "
+        "    game_date  = EXCLUDED.game_date "
+        "WHERE EXCLUDED.status >= games.status "
+        "  AND (EXCLUDED.home_score <> 0 OR EXCLUDED.away_score <> 0 "
+        "       OR EXCLUDED.status < 3)",
         game.game_id.c_str(), season, st.c_str(), game_date.c_str(),
         game.home_team_id, game.away_team_id,
         game.home_score, game.away_score,
@@ -121,6 +132,18 @@ bool BulkInserter::is_game_loaded(const std::string& game_id) const {
     pqxx::work txn(const_cast<pqxx::connection&>(conn_));
     auto r = txn.exec_params(
         "SELECT 1 FROM etl_progress WHERE game_id = $1 AND status = 'done'",
+        game_id.c_str()
+    );
+    txn.commit();
+    return !r.empty();
+}
+
+bool BulkInserter::is_game_final(const std::string& game_id) const {
+    pqxx::work txn(const_cast<pqxx::connection&>(conn_));
+    auto r = txn.exec_params(
+        "SELECT 1 FROM games "
+        "WHERE game_id = $1 AND status >= 3 "
+        "  AND (home_score <> 0 OR away_score <> 0)",
         game_id.c_str()
     );
     txn.commit();

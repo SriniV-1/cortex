@@ -43,6 +43,11 @@ public:
     // Check whether a game has already been fully loaded.
     bool is_game_loaded(const std::string& game_id) const;
 
+    // Check whether a game is stored AND final with a real (non 0-0) score.
+    // Used by the refresh loop to re-fetch games that were ingested before
+    // they finished (otherwise they'd stay stuck at their pre-final score).
+    bool is_game_final(const std::string& game_id) const;
+
     const InsertStats& stats() const { return stats_; }
 
 private:

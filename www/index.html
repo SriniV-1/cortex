@@ -1330,16 +1330,26 @@ async function loadGames(type) {
 
     // Then render recent DB games (all final)
     recentData.forEach(g => {
-      const homeWon = g.home_score > g.away_score;
-      const awayWon = g.away_score > g.home_score;
+      // Honor the actual game status — a scheduled/upcoming game (status 1) must
+      // not be rendered as "Final 0-0". 3 = final, 2 = live, anything else = scheduled.
+      const st = g.status || 3;
+      const isFinal = st >= 3, isLive = st === 2;
+      const homeWon = isFinal && g.home_score > g.away_score;
+      const awayWon = isFinal && g.away_score > g.home_score;
+      const [badgeCls, badgeLabel] = isFinal ? ['status-final','Final']
+                                   : isLive  ? ['status-live','Live']
+                                             : ['status-sched','Scheduled'];
+      const scoreHtml = (isFinal || isLive)
+        ? `<div class="game-score"><span class="${awayWon?'winner':''}">${g.away_score}</span><span class="sep">–</span><span class="${homeWon?'winner':''}">${g.home_score}</span></div>`
+        : `<div class="game-score" style="font-size:15px;color:var(--muted);letter-spacing:0;">vs</div>`;
       html += `<div class="game-item">
         <div>
           <div class="game-matchup"><span>${g.away_name}</span><span class="vs">@</span><span>${g.home_name}</span></div>
           <div class="game-date-small">${g.date}</div>
         </div>
         <div class="game-right">
-          <div class="game-score"><span class="${awayWon?'winner':''}">${g.away_score}</span><span class="sep">–</span><span class="${homeWon?'winner':''}">${g.home_score}</span></div>
-          <span class="status-badge status-final">Final</span>
+          ${scoreHtml}
+          <span class="status-badge ${badgeCls}">${badgeLabel}</span>
         </div>
       </div>`;
     });

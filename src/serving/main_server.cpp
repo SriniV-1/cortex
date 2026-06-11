@@ -332,6 +332,10 @@ int main(int argc, char** argv) {
                         if (inserter.is_game_loaded(gid)) {
                             consecutive_miss = 0;
                             ++seen_any;
+                            // Re-fetch games stored before they were final so a
+                            // stuck pre-final / 0-0 score self-corrects on refresh.
+                            if (!inserter.is_game_final(gid))
+                                load_game_full(client, inserter, gid, season, rlog);
                             continue;
                         }
                         if (load_game_full(client, inserter, gid, season, rlog))
@@ -349,6 +353,10 @@ int main(int argc, char** argv) {
                         if (inserter.is_game_loaded(gid)) {
                             consecutive_miss = 0;
                             ++seen_any;
+                            // Re-fetch games stored before they were final so a
+                            // stuck pre-final / 0-0 score self-corrects on refresh.
+                            if (!inserter.is_game_final(gid))
+                                load_game_full(client, inserter, gid, season, rlog);
                             continue;
                         }
                         if (load_game_full(client, inserter, gid, season, rlog))

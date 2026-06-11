@@ -654,16 +654,16 @@
      THE COURT — whole page laid on hardwood with court markings
      ════════════════════════════════════════════════════════════════════ */
   :root {
-    --wood-base:  #2b1d10;
-    --wood-plank: rgba(0,0,0,0.14);
+    --wood-base:  #38260f;
+    --wood-plank: rgba(0,0,0,0.20);
     --wood-grain: rgba(255,214,170,0.05);
-    --court-line: rgba(245,236,222,0.085);
+    --court-line: rgba(245,236,222,0.17);
   }
   [data-theme="light"] {
     --wood-base:  #e0bd86;
-    --wood-plank: rgba(110,70,30,0.11);
+    --wood-plank: rgba(110,70,30,0.16);
     --wood-grain: rgba(110,70,30,0.05);
-    --court-line: rgba(90,55,25,0.14);
+    --court-line: rgba(90,55,25,0.24);
   }
   /* Hardwood floor across the whole page */
   body {
@@ -678,7 +678,7 @@
 
   /* Painted court lines the content scrolls over */
   .court-bg { position: fixed; top: 0; bottom: 0; left: var(--rail-w); right: 0; z-index: 0; display: flex; justify-content: center; pointer-events: none; }
-  .court-bg svg { width: auto; height: 96%; color: var(--court-line); }
+  .court-bg svg { width: auto; height: 100%; color: var(--court-line); }
   main { position: relative; z-index: 1; }
   .rail { z-index: 60; }
 
@@ -803,11 +803,6 @@
             <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
           </radialGradient>
         </defs>
-        <!-- floor markings -->
-        <g class="court-lines" fill="none" stroke="currentColor" stroke-width="1.4">
-          <line x1="36" y1="236" x2="564" y2="236"/>
-          <path d="M150,236 A 116 116 0 0 1 450 236"/>
-        </g>
         <!-- hoop: backboard, target, rim, net -->
         <g class="hoop-grp">
           <rect class="board" x="470" y="32" width="100" height="92" rx="3"/>

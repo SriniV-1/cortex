@@ -151,9 +151,10 @@ cmd_start() {
   local pid=$!
   echo "$pid" > "$PID_FILE"
 
-  # Wait for server to accept connections
+  # Wait for server to accept connections (any response means it's up;
+  # /health may return 503 while background indexes are still loading)
   local tries=0
-  while ! curl -sf http://localhost:8080/health &>/dev/null; do
+  while ! curl -so /dev/null http://localhost:8080/health 2>/dev/null; do
     sleep 0.3
     tries=$((tries + 1))
     if [[ $tries -gt 30 ]]; then

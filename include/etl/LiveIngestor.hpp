@@ -19,6 +19,7 @@
 #include "stream/StreamEvent.hpp"
 
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
@@ -53,6 +54,11 @@ public:
         return scoreboard_;
     }
 
+    // Called on the poll thread when a game transitions to status=3 (final).
+    // The callback receives the game_id so the caller can persist it.
+    using CompletionCallback = std::function<void(const std::string& game_id)>;
+    void on_game_complete(CompletionCallback cb) { on_complete_ = std::move(cb); }
+
 private:
     void run();
     void poll_once();
@@ -85,6 +91,11 @@ private:
     // Latest scoreboard for external consumption.
     mutable std::mutex             scoreboard_mu_;
     std::vector<GameSummary>       scoreboard_;
+
+    // Game completion detection: track games seen as live (status=2).
+    // When they appear as status=3, fire the callback once.
+    std::unordered_map<std::string, bool> seen_live_;
+    CompletionCallback                    on_complete_;
 };
 
 } // namespace cortex::etl

@@ -1,0 +1,80 @@
+syntax = "proto3";
+package cortex;
+
+option cc_generic_services = false;
+
+// CoordinatorService — cluster management RPCs.
+// Workers register, send heartbeats, and receive game assignments.
+service CoordinatorService {
+  // Worker joins the cluster.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+
+  // Worker sends periodic heartbeat (every 2s).
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // Server-streaming: coordinator pushes game assignments to a worker.
+  rpc StreamAssignments(AssignmentRequest) returns (stream AssignmentUpdate);
+
+  // Worker reports per-game stats snapshot.
+  rpc ReportStats(StatsReport) returns (Ack);
+
+  // Worker graceful shutdown — triggers immediate reassignment.
+  rpc Deregister(DeregisterRequest) returns (Ack);
+}
+
+message RegisterRequest {
+  string worker_id = 1;
+  string host = 2;
+  int32 port = 3;
+  int32 capacity = 4;     // max games this worker can handle
+}
+
+message RegisterResponse {
+  bool accepted = 1;
+  int64 epoch = 2;
+  string coordinator_id = 3;
+}
+
+message HeartbeatRequest {
+  string worker_id = 1;
+  repeated string active_games = 2;
+  int64 events_processed = 3;
+  double cpu_load = 4;
+}
+
+message HeartbeatResponse {
+  bool acknowledged = 1;
+  repeated AssignmentUpdate pending_assignments = 2;
+}
+
+message AssignmentRequest {
+  string worker_id = 1;
+}
+
+message AssignmentUpdate {
+  enum Action {
+    ASSIGN = 0;
+    REVOKE = 1;
+  }
+  Action action = 1;
+  string game_id = 2;
+  int64 epoch = 3;        // fencing token — reject stale assignments
+}
+
+message StatsReport {
+  string worker_id = 1;
+  string game_id = 2;
+  int32 home_score = 3;
+  int32 away_score = 4;
+  int64 events_processed = 5;
+  int64 timestamp_ms = 6;
+}
+
+message Ack {
+  bool ok = 1;
+  string message = 2;
+}
+
+message DeregisterRequest {
+  string worker_id = 1;
+}

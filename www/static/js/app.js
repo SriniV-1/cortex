@@ -107,8 +107,8 @@ const views = {
   recruiter: recruiterView,
 };
 const TITLES = {
-  overview: 'Overview', benchmarks: 'Benchmarks', architecture: 'Architecture',
-  observability: 'Observability', recruiter: 'Recruiter view',
+  overview: 'Courtside', benchmarks: 'Stat Sheet', architecture: 'Playbook',
+  observability: "Scorer's Table", recruiter: 'Scouting Report',
 };
 const mounted = new Set();
 let currentRoute = null;
@@ -147,11 +147,11 @@ const ACT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 const EXT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M14 4h6v6M20 4l-9 9M10 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-4"/></svg>';
 
 const COMMANDS = [
-  { section: 'Navigate', label: 'Overview', kbd: '1', icon: NAV_ICON, run: () => { location.hash = '#/'; } },
-  { section: 'Navigate', label: 'Benchmarks', kbd: '2', icon: NAV_ICON, run: () => { location.hash = '#/benchmarks'; } },
-  { section: 'Navigate', label: 'Architecture', kbd: '3', icon: NAV_ICON, run: () => { location.hash = '#/architecture'; } },
-  { section: 'Navigate', label: 'Observability', kbd: '4', icon: NAV_ICON, run: () => { location.hash = '#/observability'; } },
-  { section: 'Navigate', label: 'Recruiter view', kbd: '5', icon: NAV_ICON, run: () => { location.hash = '#/recruiter'; } },
+  { section: 'Navigate', label: 'Courtside — live dashboard', kbd: '1', icon: NAV_ICON, run: () => { location.hash = '#/'; } },
+  { section: 'Navigate', label: 'Stat Sheet — benchmarks', kbd: '2', icon: NAV_ICON, run: () => { location.hash = '#/benchmarks'; } },
+  { section: 'Navigate', label: 'Playbook — architecture', kbd: '3', icon: NAV_ICON, run: () => { location.hash = '#/architecture'; } },
+  { section: 'Navigate', label: "Scorer's Table — observability", kbd: '4', icon: NAV_ICON, run: () => { location.hash = '#/observability'; } },
+  { section: 'Navigate', label: 'Scouting Report — recruiter view', kbd: '5', icon: NAV_ICON, run: () => { location.hash = '#/recruiter'; } },
   { section: 'Actions', label: 'Toggle theme', kbd: 'T', icon: ACT_ICON, run: () => document.getElementById('theme-toggle').click() },
   { section: 'Actions', label: 'Toggle auto-refresh', icon: ACT_ICON, run: () => document.getElementById('auto-refresh-toggle').click() },
   { section: 'Actions', label: 'Refresh data now', kbd: 'R', icon: ACT_ICON, run: doRefresh },

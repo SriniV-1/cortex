@@ -3,22 +3,34 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cortex — Real-Time NBA Analytics Engine</title>
-<meta name="description" content="C++20 real-time analytics engine: lock-free ingestion, SIMD vector search, hand-written HTTP/WebSocket server, distributed stream processing. Sub-20ms p99 over 4.7M events.">
+<title>Cortex — Courtside</title>
+<meta name="description" content="C++20 real-time NBA analytics engine: lock-free ingestion, SIMD vector search, hand-written HTTP/WebSocket server, distributed stream processing. Every play, quantified.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
+
+<!-- Painted court lines the whole page sits on -->
+<div class="court-bg" aria-hidden="true">
+  <svg viewBox="0 0 500 820" preserveAspectRatio="xMidYMid meet" fill="none" stroke="currentColor">
+    <circle cx="250" cy="24" r="66" stroke-width="2"/>
+    <circle cx="250" cy="612" r="60" stroke-width="2"/>
+    <path d="M214,756 A 36 36 0 0 0 286 756" stroke-width="2"/>
+    <line x1="218" y1="748" x2="282" y2="748" stroke-width="3"/>
+    <circle cx="250" cy="760" r="9" stroke-width="2.5"/>
+    <path d="M80,702 A 180 180 0 0 1 420 702" stroke-width="2"/>
+  </svg>
+</div>
 
 <div class="shell">
   <!-- ── Sidebar ──────────────────────────────────────────────────────── -->
   <aside class="sidebar" aria-label="Primary">
     <a class="brand" href="#/">
       <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v6m0 6v6M3 12h6m6 0h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3.2" fill="currentColor"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13.4 13.4 0 0 1 0 18M12 3a13.4 13.4 0 0 0 0 18"/></svg>
       </span>
       <span class="brand-text">
         <span class="brand-name">CORTEX</span>
@@ -28,24 +40,24 @@
 
     <nav class="nav" aria-label="Views">
       <a class="nav-item" href="#/" data-route="overview">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
-        <span>Overview</span><kbd>1</kbd>
+        <span class="jersey">01</span>
+        <span>Courtside</span><kbd>1</kbd>
       </a>
       <a class="nav-item" href="#/benchmarks" data-route="benchmarks">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M21 20H3"/></svg>
-        <span>Benchmarks</span><kbd>2</kbd>
+        <span class="jersey">02</span>
+        <span>Stat Sheet</span><kbd>2</kbd>
       </a>
       <a class="nav-item" href="#/architecture" data-route="architecture">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="6" height="6" rx="1.2"/><rect x="15" y="3" width="6" height="6" rx="1.2"/><rect x="9" y="15" width="6" height="6" rx="1.2"/><path d="M6 9v3h12V9M12 12v3"/></svg>
-        <span>Architecture</span><kbd>3</kbd>
+        <span class="jersey">03</span>
+        <span>Playbook</span><kbd>3</kbd>
       </a>
       <a class="nav-item" href="#/observability" data-route="observability">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-7 4 14 2.5-7h5"/></svg>
-        <span>Observability</span><kbd>4</kbd>
+        <span class="jersey">04</span>
+        <span>Scorer's Table</span><kbd>4</kbd>
       </a>
       <a class="nav-item" href="#/recruiter" data-route="recruiter">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="3.6"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/></svg>
-        <span>Recruiter view</span><kbd>5</kbd>
+        <span class="jersey">05</span>
+        <span>Scouting Report</span><kbd>5</kbd>
       </a>
     </nav>
 
@@ -91,34 +103,72 @@
 
       <!-- ════════ OVERVIEW ════════ -->
       <section class="view" data-view="overview" aria-label="Overview">
-        <div class="hero">
-          <div class="hero-copy">
-            <div class="hero-badges">
-              <span class="badge badge-accent">C++20</span>
-              <span class="badge">lock-free ingestion</span>
-              <span class="badge">SIMD vector search</span>
-              <span class="badge">kqueue/epoll server</span>
-              <span class="badge">distributed mode</span>
-            </div>
-            <h2 class="hero-h">Real-time NBA analytics,<br>engineered from scratch.</h2>
-            <p class="hero-p">
-              Cortex ingests live and historical play-by-play, computes statistics in
-              real time, and serves them over a hand-written HTTP/1.1 + WebSocket
-              server — <strong>4.7M events, sub-20&thinsp;ms p99</strong>, no frameworks.
-            </p>
+        <section class="court-hero" aria-label="Cortex">
+          <div class="court-hero-copy">
+            <div class="ch-eyebrow">Real-Time NBA Analytics Engine</div>
+            <h2 class="ch-title">EVERY PLAY,<br><span class="acc">QUANTIFIED.</span></h2>
+            <p class="ch-sub">C++20, no frameworks — lock-free ingestion · SIMD vector search ·
+            hand-written HTTP/WebSocket server · live win probability on every possession.</p>
             <div class="hero-cta">
-              <a class="btn btn-primary" href="#/benchmarks">View benchmarks</a>
-              <a class="btn" href="#/architecture">Explore the architecture</a>
+              <a class="btn btn-primary" href="#/benchmarks">Read the stat sheet</a>
+              <a class="btn" href="#/architecture">Open the playbook</a>
             </div>
           </div>
-          <div class="hero-metrics" id="hero-metrics">
-            <div class="metric"><span class="metric-v mono" id="chip-events">—</span><span class="metric-l">play-by-play events</span></div>
-            <div class="metric"><span class="metric-v mono" id="chip-games">—</span><span class="metric-l">games · 2019–2026</span></div>
-            <div class="metric"><span class="metric-v mono" id="chip-players">—</span><span class="metric-l">players tracked</span></div>
-            <div class="metric"><span class="metric-v mono" id="chip-stream">—</span><span class="metric-l">events processed live</span></div>
-            <a class="metric metric-link" href="#/benchmarks"><span class="metric-v mono">8.7M<span class="metric-unit">/s</span></span><span class="metric-l">ring buffer throughput →</span></a>
-            <a class="metric metric-link" href="#/benchmarks"><span class="metric-v mono">&lt;20<span class="metric-unit">ms</span></span><span class="metric-l">p99 query latency →</span></a>
+          <div class="court-stage">
+            <svg class="court-svg" viewBox="0 0 600 260" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+              <defs>
+                <radialGradient id="bball" cx="38%" cy="32%" r="78%">
+                  <stop offset="0%" stop-color="#ffb277"/>
+                  <stop offset="52%" stop-color="#ff6a3d"/>
+                  <stop offset="100%" stop-color="#b93a18"/>
+                </radialGradient>
+                <radialGradient id="bshine" cx="34%" cy="28%" r="44%">
+                  <stop offset="0%" stop-color="#ffffff" stop-opacity="0.5"/>
+                  <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+                </radialGradient>
+              </defs>
+              <g class="hoop-grp">
+                <rect class="board" x="470" y="32" width="100" height="92" rx="3"/>
+                <rect class="target" x="500" y="72" width="40" height="30"/>
+                <ellipse class="rim" cx="520" cy="124" rx="38" ry="10"/>
+                <g class="net">
+                  <line x1="485" y1="126" x2="503" y2="166"/>
+                  <line x1="498" y1="129" x2="511" y2="166"/>
+                  <line x1="511" y1="130" x2="517" y2="167"/>
+                  <line x1="520" y1="130" x2="520" y2="168"/>
+                  <line x1="529" y1="130" x2="523" y2="167"/>
+                  <line x1="542" y1="129" x2="529" y2="166"/>
+                  <line x1="555" y1="126" x2="537" y2="166"/>
+                  <path d="M485,126 Q520,150 555,126"/>
+                  <path d="M498,150 Q520,160 542,150"/>
+                </g>
+              </g>
+              <path id="shotPath" class="shot-traj" d="M78,206 Q300,42 506,118 Q530,130 520,160" fill="none"/>
+              <g class="bball">
+                <circle r="14" fill="url(#bball)"/>
+                <circle r="14" fill="url(#bshine)"/>
+                <g class="seams" stroke="#3a1c0e" stroke-width="1.5" fill="none" stroke-linecap="round">
+                  <line x1="0" y1="-14" x2="0" y2="14"/>
+                  <line x1="-14" y1="0" x2="14" y2="0"/>
+                  <path d="M0,-14 C-10,-7 -10,7 0,14"/>
+                  <path d="M0,-14 C10,-7 10,7 0,14"/>
+                </g>
+                <animateMotion dur="3.4s" repeatCount="indefinite" keyTimes="0;0.6;0.76;1" keyPoints="0;0.8;1;1" calcMode="spline" keySplines="0.12 0.5 0.45 1; 0.55 0 0.9 0.65; 0 0 1 1">
+                  <mpath href="#shotPath"/>
+                </animateMotion>
+                <animate attributeName="opacity" dur="3.4s" repeatCount="indefinite" keyTimes="0;0.05;0.76;0.83;1" values="0;1;1;0;0" calcMode="spline" keySplines="0.4 0 1 1; 0 0 1 1; 0.4 0 1 1; 0 0 1 1"/>
+              </g>
+            </svg>
           </div>
+        </section>
+
+        <div class="hero-metrics" id="hero-metrics">
+          <div class="metric"><span class="metric-v mono" id="chip-events">—</span><span class="metric-l">play-by-play events</span></div>
+          <div class="metric"><span class="metric-v mono" id="chip-games">—</span><span class="metric-l">games · 2019–2026</span></div>
+          <div class="metric"><span class="metric-v mono" id="chip-players">—</span><span class="metric-l">players tracked</span></div>
+          <div class="metric"><span class="metric-v mono" id="chip-stream">—</span><span class="metric-l">events processed live</span></div>
+          <a class="metric metric-link" href="#/benchmarks"><span class="metric-v mono">8.7M<span class="metric-unit">/s</span></span><span class="metric-l">ring buffer throughput →</span></a>
+          <a class="metric metric-link" href="#/benchmarks"><span class="metric-v mono">&lt;20<span class="metric-unit">ms</span></span><span class="metric-l">p99 query latency →</span></a>
         </div>
 
         <!-- Live stream -->
@@ -249,10 +299,10 @@
       <!-- ════════ BENCHMARKS ════════ -->
       <section class="view" data-view="benchmarks" hidden aria-label="Benchmarks">
         <div class="view-intro">
-          <h2>Benchmarks</h2>
-          <p>Every number below is a measured result from the repo's benchmark suite
-             (<code>tests/benchmarks/</code>) on the full 4.7M-event dataset — reproducible
-             with the commands at the bottom of this page.</p>
+          <h2>The Stat Sheet</h2>
+          <p>Box scores for the engine itself. Every number below is a measured result from
+             the repo's benchmark suite (<code>tests/benchmarks/</code>) on the full
+             4.7M-event dataset — reproducible with the commands at the bottom of this page.</p>
         </div>
         <div class="grid-2">
           <section class="card"><header class="card-head"><h3>Query latency — p99 vs. 20 ms target</h3></header>
@@ -273,10 +323,10 @@
       <!-- ════════ ARCHITECTURE ════════ -->
       <section class="view" data-view="architecture" hidden aria-label="Architecture">
         <div class="view-intro">
-          <h2>Architecture</h2>
-          <p>Click any component to inspect what it does, where it lives in the
-             codebase, and its measured characteristics. Dots animate along the hot
-             path: feed → ring buffer → processor → serving.</p>
+          <h2>The Playbook</h2>
+          <p>How the ball moves through the system. Click any component to inspect what
+             it does, where it lives in the codebase, and its measured numbers — the dots
+             run the play: feed → ring buffer → processor → serving.</p>
         </div>
         <div class="arch-layout">
           <div class="card arch-card"><div id="arch-diagram" role="img" aria-label="Cortex system architecture diagram"></div></div>
@@ -292,10 +342,11 @@
       <!-- ════════ OBSERVABILITY ════════ -->
       <section class="view" data-view="observability" hidden aria-label="Observability">
         <div class="view-intro">
-          <h2>Observability</h2>
-          <p>Live data polled from this server's <code>/metrics</code> (Prometheus),
-             <code>/health</code>, and <code>/api/index/status</code> every 5 seconds —
-             plus real request latency measured from your browser.</p>
+          <h2>The Scorer's Table</h2>
+          <p>Courtside telemetry for the engine: live data polled from this server's
+             <code>/metrics</code> (Prometheus), <code>/health</code>, and
+             <code>/api/index/status</code> every 5 seconds — plus real request latency
+             measured from your browser.</p>
         </div>
         <div class="obs-grid" id="obs-cards"></div>
         <div class="grid-2">
@@ -310,9 +361,9 @@
       <!-- ════════ RECRUITER ════════ -->
       <section class="view" data-view="recruiter" hidden aria-label="Recruiter overview">
         <div class="view-intro">
-          <h2>The 60-second version</h2>
-          <p>What this project is, why it's hard, and what was measured — for people
-             evaluating engineering depth on a deadline.</p>
+          <h2>The Scouting Report</h2>
+          <p>The 60-second version: what this project is, why it's hard, and what was
+             measured — for anyone evaluating engineering depth on a deadline.</p>
         </div>
 
         <section class="card">

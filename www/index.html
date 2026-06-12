@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cortex — Courtside</title>
-<meta name="description" content="C++20 real-time NBA analytics engine: lock-free ingestion, SIMD vector search, hand-written HTTP/WebSocket server, distributed stream processing. Every play, quantified.">
+<meta name="description" content="C++20 real-time NBA analytics engine: lock-free ingestion, SIMD vector search, hand-written HTTP/WebSocket server. Every play, quantified.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800;900&family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
@@ -26,67 +26,28 @@
 </div>
 
 <div class="shell">
-  <!-- ── Sidebar ──────────────────────────────────────────────────────── -->
-  <aside class="sidebar" aria-label="Primary">
-    <a class="brand" href="#/">
-      <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13.4 13.4 0 0 1 0 18M12 3a13.4 13.4 0 0 0 0 18"/></svg>
-      </span>
-      <span class="brand-text">
-        <span class="brand-name">CORTEX</span>
-        <span class="brand-sub">NBA Analytics Engine</span>
-      </span>
-    </a>
-
-    <nav class="nav" aria-label="Views">
-      <a class="nav-item" href="#/" data-route="overview">
-        <span class="jersey">01</span>
-        <span>Courtside</span><kbd>1</kbd>
+  <div class="main-col" id="top">
+    <!-- ── Scoreboard header ───────────────────────────────────────────── -->
+    <header class="topbar">
+      <a class="brand" href="#top">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a13.4 13.4 0 0 1 0 18M12 3a13.4 13.4 0 0 0 0 18"/></svg>
+        </span>
+        <span class="brand-text">
+          <span class="brand-name">CORTEX</span>
+          <span class="brand-sub">NBA Analytics Engine</span>
+        </span>
       </a>
-      <a class="nav-item" href="#/benchmarks" data-route="benchmarks">
-        <span class="jersey">02</span>
-        <span>Stat Sheet</span><kbd>2</kbd>
-      </a>
-      <a class="nav-item" href="#/architecture" data-route="architecture">
-        <span class="jersey">03</span>
-        <span>Playbook</span><kbd>3</kbd>
-      </a>
-      <a class="nav-item" href="#/observability" data-route="observability">
-        <span class="jersey">04</span>
-        <span>Scorer's Table</span><kbd>4</kbd>
-      </a>
-      <a class="nav-item" href="#/recruiter" data-route="recruiter">
-        <span class="jersey">05</span>
-        <span>Scouting Report</span><kbd>5</kbd>
-      </a>
-    </nav>
-
-    <div class="sidebar-foot">
-      <div class="sys-row">
+      <div class="topbar-status">
         <span class="dot" id="server-dot" aria-hidden="true"></span>
         <span id="server-status" role="status">connecting…</span>
-        <span class="sys-clock mono" id="rail-clock">--:--:--</span>
-      </div>
-      <div class="sys-row sys-dim">
-        <span>events processed</span>
+        <span class="tb-sep" aria-hidden="true"></span>
+        <span class="tb-dim">events</span>
         <span class="mono" id="side-events">—</span>
+        <span class="tb-sep" aria-hidden="true"></span>
+        <span class="mono tb-dim" id="rail-clock">--:--:--</span>
       </div>
-      <a class="sys-gh" href="https://github.com/SriniV-1/cortex" target="_blank" rel="noopener noreferrer">
-        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-        <span>SriniV-1/cortex</span>
-      </a>
-    </div>
-  </aside>
-
-  <!-- ── Main column ──────────────────────────────────────────────────── -->
-  <div class="main-col">
-    <header class="topbar">
-      <h1 class="topbar-title" id="view-title">Overview</h1>
       <div class="topbar-actions">
-        <button class="tb-btn" id="cmdk-btn" title="Command palette">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-3.8-3.8"/></svg>
-          <span>Search</span><kbd class="mono">⌘K</kbd>
-        </button>
         <button class="tb-btn" id="auto-refresh-toggle" aria-pressed="true" title="Toggle 30s auto-refresh">
           <svg id="auto-refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.34 6.34M20 5v6h-6"/></svg>
           <span id="auto-refresh-label">Auto</span>
@@ -96,23 +57,28 @@
           <svg id="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
           <svg id="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" hidden><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
         </button>
+        <a class="tb-btn tb-icon" href="https://github.com/SriniV-1/cortex" target="_blank" rel="noopener noreferrer" title="GitHub repository" aria-label="GitHub repository">
+          <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        </a>
       </div>
     </header>
 
     <main id="main" class="views" tabindex="-1">
+      <section class="view" aria-label="Courtside dashboard">
 
-      <!-- ════════ OVERVIEW ════════ -->
-      <section class="view" data-view="overview" aria-label="Overview">
+        <!-- Bottom-line ticker: real finals from /api/games/recent -->
+        <div class="ticker" aria-hidden="true">
+          <span class="ticker-label">CTX</span>
+          <div class="ticker-clip"><div class="ticker-track" id="ticker-track"></div></div>
+        </div>
+
+        <!-- Broadcast hero -->
         <section class="court-hero" aria-label="Cortex">
           <div class="court-hero-copy">
             <div class="ch-eyebrow">Real-Time NBA Analytics Engine</div>
             <h2 class="ch-title">EVERY PLAY,<br><span class="acc">QUANTIFIED.</span></h2>
             <p class="ch-sub">C++20, no frameworks — lock-free ingestion · SIMD vector search ·
             hand-written HTTP/WebSocket server · live win probability on every possession.</p>
-            <div class="hero-cta">
-              <a class="btn btn-primary" href="#/benchmarks">Read the stat sheet</a>
-              <a class="btn" href="#/architecture">Open the playbook</a>
-            </div>
           </div>
           <div class="court-stage">
             <svg class="court-svg" viewBox="0 0 600 260" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
@@ -162,13 +128,14 @@
           </div>
         </section>
 
+        <!-- Jumbotron tiles -->
         <div class="hero-metrics" id="hero-metrics">
           <div class="metric"><span class="metric-v mono" id="chip-events">—</span><span class="metric-l">play-by-play events</span></div>
           <div class="metric"><span class="metric-v mono" id="chip-games">—</span><span class="metric-l">games · 2019–2026</span></div>
           <div class="metric"><span class="metric-v mono" id="chip-players">—</span><span class="metric-l">players tracked</span></div>
           <div class="metric"><span class="metric-v mono" id="chip-stream">—</span><span class="metric-l">events processed live</span></div>
-          <a class="metric metric-link" href="#/benchmarks"><span class="metric-v mono">8.7M<span class="metric-unit">/s</span></span><span class="metric-l">ring buffer throughput →</span></a>
-          <a class="metric metric-link" href="#/benchmarks"><span class="metric-v mono">&lt;20<span class="metric-unit">ms</span></span><span class="metric-l">p99 query latency →</span></a>
+          <div class="metric"><span class="metric-v mono">8.7M<span class="metric-unit">/s</span></span><span class="metric-l">ring buffer throughput</span></div>
+          <div class="metric"><span class="metric-v mono">&lt;20<span class="metric-unit">ms</span></span><span class="metric-l">p99 query latency</span></div>
         </div>
 
         <!-- Live stream -->
@@ -212,7 +179,7 @@
         </section>
 
         <!-- Leaderboard + games -->
-        <div class="grid-2">
+        <div class="grid-2" id="sec-board">
           <section class="card" aria-label="Player leaderboard">
             <header class="card-head">
               <h3>Leaderboard</h3>
@@ -257,7 +224,7 @@
             <h3>Game-state similarity search</h3>
             <span class="chip" id="sim-index-tag"><span class="pulse-dot" id="sim-index-dot"></span><span id="sim-index-label">index loading…</span></span>
           </header>
-          <p class="card-sub">Brute-force SIMD (ARM NEON) nearest-neighbor scan over every historical game state — find the 10 closest matches to any scenario, with win probability from outcomes + Elo.</p>
+          <p class="card-sub">Enter any game scenario — the engine scans every historical game state with SIMD vector search and returns the 10 closest matches, with win probability from outcomes + Elo.</p>
           <div class="sim-form">
             <label class="field"><span>Home score</span><input class="input mono" type="number" id="sim-home" value="105" min="0" max="200"></label>
             <label class="field"><span>Away score</span><input class="input mono" type="number" id="sim-away" value="98" min="0" max="200"></label>
@@ -295,167 +262,7 @@
           </section>
         </div>
       </section>
-
-      <!-- ════════ BENCHMARKS ════════ -->
-      <section class="view" data-view="benchmarks" hidden aria-label="Benchmarks">
-        <div class="view-intro">
-          <h2>The Stat Sheet</h2>
-          <p>Box scores for the engine itself. Every number below is a measured result from
-             the repo's benchmark suite (<code>tests/benchmarks/</code>) on the full
-             4.7M-event dataset — reproducible with the commands at the bottom of this page.</p>
-        </div>
-        <div class="grid-2">
-          <section class="card"><header class="card-head"><h3>Query latency — p99 vs. 20 ms target</h3></header>
-            <p class="card-sub" id="bench-latency-src"></p><div id="bench-latency"></div></section>
-          <section class="card"><header class="card-head"><h3>HNSW vs. brute-force SIMD</h3></header>
-            <p class="card-sub" id="bench-ann-src"></p><div id="bench-ann"></div></section>
-        </div>
-        <div class="grid-2">
-          <section class="card"><header class="card-head"><h3>Ingestion throughput</h3></header>
-            <p class="card-sub" id="bench-throughput-src"></p><div id="bench-throughput"></div></section>
-          <section class="card"><header class="card-head"><h3>Microbenchmarks</h3></header>
-            <p class="card-sub" id="bench-micro-src"></p><div id="bench-micro"></div></section>
-        </div>
-        <section class="card"><header class="card-head"><h3>Reproduce these numbers</h3></header>
-          <div id="bench-run"></div></section>
-      </section>
-
-      <!-- ════════ ARCHITECTURE ════════ -->
-      <section class="view" data-view="architecture" hidden aria-label="Architecture">
-        <div class="view-intro">
-          <h2>The Playbook</h2>
-          <p>How the ball moves through the system. Click any component to inspect what
-             it does, where it lives in the codebase, and its measured numbers — the dots
-             run the play: feed → ring buffer → processor → serving.</p>
-        </div>
-        <div class="arch-layout">
-          <div class="card arch-card"><div id="arch-diagram" role="img" aria-label="Cortex system architecture diagram"></div></div>
-          <aside class="card arch-detail" id="arch-detail" aria-live="polite"></aside>
-        </div>
-        <section class="card" id="arch-cluster-card">
-          <header class="card-head"><h3>Distributed mode — coordinator + workers</h3>
-            <span class="chip">gRPC · consistent hashing · epoch fencing</span></header>
-          <div id="arch-cluster"></div>
-        </section>
-      </section>
-
-      <!-- ════════ OBSERVABILITY ════════ -->
-      <section class="view" data-view="observability" hidden aria-label="Observability">
-        <div class="view-intro">
-          <h2>The Scorer's Table</h2>
-          <p>Courtside telemetry for the engine: live data polled from this server's
-             <code>/metrics</code> (Prometheus), <code>/health</code>, and
-             <code>/api/index/status</code> every 5 seconds — plus real request latency
-             measured from your browser.</p>
-        </div>
-        <div class="obs-grid" id="obs-cards"></div>
-        <div class="grid-2">
-          <section class="card"><header class="card-head"><h3>Events processed</h3><span class="chip" id="obs-rate">— ev/s</span></header>
-            <div class="chart-host" id="obs-events-chart"></div></section>
-          <section class="card"><header class="card-head"><h3>Live request latency <span class="card-hint">measured from this browser</span></h3></header>
-            <div id="obs-probe"></div></section>
-        </div>
-        <section class="card"><header class="card-head"><h3>System health</h3></header><div id="obs-health"></div></section>
-      </section>
-
-      <!-- ════════ RECRUITER ════════ -->
-      <section class="view" data-view="recruiter" hidden aria-label="Recruiter overview">
-        <div class="view-intro">
-          <h2>The Scouting Report</h2>
-          <p>The 60-second version: what this project is, why it's hard, and what was
-             measured — for anyone evaluating engineering depth on a deadline.</p>
-        </div>
-
-        <section class="card">
-          <header class="card-head"><h3>What it is</h3></header>
-          <p class="prose">A <strong>C++20 real-time analytics engine</strong> that ingests NBA play-by-play
-          (live + historical), computes statistics in real time, and serves them over HTTP and
-          WebSocket. The point of the project is the systems engineering: everything below the
-          analytics — the HTTP server, the WebSocket framing, the lock-free queue, the vector
-          index, the cluster coordination — is <strong>written from scratch</strong>, not imported.</p>
-          <div class="rec-scale" id="rec-scale"></div>
-        </section>
-
-        <section class="card">
-          <header class="card-head"><h3>Hard problems → measured results</h3></header>
-          <div class="rec-rows">
-            <div class="rec-row">
-              <div class="rec-challenge">Decouple a bursty network feed from stream processing without locks</div>
-              <div class="rec-solution">Cache-line-padded <strong>lock-free SPSC ring buffer</strong></div>
-              <div class="rec-result mono">8.7M events/s</div>
-            </div>
-            <div class="rec-row">
-              <div class="rec-challenge">Find similar game states across every event in history, fast</div>
-              <div class="rec-solution"><strong>SIMD (ARM NEON)</strong> brute-force scan over 4.7M vectors · 142 MB in RAM</div>
-              <div class="rec-result mono">~6 ms p99</div>
-            </div>
-            <div class="rec-row">
-              <div class="rec-challenge">Make that search sub-millisecond</div>
-              <div class="rec-solution">Hand-rolled <strong>HNSW graph index</strong></div>
-              <div class="rec-result mono">&lt;1 ms · &gt;95% recall@10</div>
-            </div>
-            <div class="rec-row">
-              <div class="rec-challenge">Serve concurrent clients without a web framework</div>
-              <div class="rec-solution"><strong>HTTP/1.1 + RFC 6455 WebSocket server</strong> on an edge-triggered kqueue/epoll event loop, trie router, JWT + RBAC, backpressure caps</div>
-              <div class="rec-result mono">15.6 ms p99 · 1k clients</div>
-            </div>
-            <div class="rec-row">
-              <div class="rec-challenge">Survive worker failure in distributed mode without split-brain</div>
-              <div class="rec-solution"><strong>Epoch-fenced reassignment</strong> — heartbeats, 150-virtual-node consistent hash ring, stateless replay from S3</div>
-              <div class="rec-result mono">detect 6 s · rebuild &lt;1 s</div>
-            </div>
-            <div class="rec-row">
-              <div class="rec-challenge">Load 4.7M rows into PostgreSQL quickly and repeatably</div>
-              <div class="rec-solution"><strong>COPY-protocol bulk loader</strong> into a range-partitioned table with materialized-view box scores</div>
-              <div class="rec-result mono">~50K rows/s</div>
-            </div>
-            <div class="rec-row">
-              <div class="rec-challenge">Score win probability on every live event</div>
-              <div class="rec-solution">7-feature Elo-enhanced logistic regression exported to a <strong>217-byte ONNX graph</strong></div>
-              <div class="rec-result mono">75.5% acc · 0.837 AUC · ~0.1 ms</div>
-            </div>
-          </div>
-        </section>
-
-        <div class="grid-2">
-          <section class="card">
-            <header class="card-head"><h3>Quality story</h3></header>
-            <ul class="prose-list">
-              <li><strong>43+ gtest suites</strong> across 12 components</li>
-              <li><strong>Property-based tests</strong> (RapidCheck) for parsers and the ring buffer</li>
-              <li><strong>libFuzzer harnesses</strong> on the HTTP/JSON parsing paths</li>
-              <li><strong>AddressSanitizer-clean</strong>; CI runs the full suite</li>
-              <li>p50/p95/p99 latency + throughput benchmarks in-repo</li>
-            </ul>
-          </section>
-          <section class="card">
-            <header class="card-head"><h3>Stack</h3></header>
-            <div class="stack-chips">
-              <span class="badge">C++20</span><span class="badge">PostgreSQL 15 · range partitions</span>
-              <span class="badge">Redis · cache-aside + circuit breaker</span><span class="badge">gRPC</span>
-              <span class="badge">ONNX Runtime</span><span class="badge">ARM NEON SIMD</span>
-              <span class="badge">kqueue / epoll</span><span class="badge">Docker</span>
-              <span class="badge">gtest · RapidCheck · libFuzzer</span>
-            </div>
-            <div class="rec-links">
-              <a class="btn btn-primary" href="https://github.com/SriniV-1/cortex" target="_blank" rel="noopener noreferrer">GitHub repo</a>
-              <a class="btn" href="#/benchmarks">Benchmarks</a>
-              <a class="btn" href="#/architecture">Architecture</a>
-            </div>
-          </section>
-        </div>
-      </section>
     </main>
-  </div>
-</div>
-
-<!-- ── Command palette ─────────────────────────────────────────────────── -->
-<div class="cmdk-backdrop" id="cmdk-backdrop" hidden>
-  <div class="cmdk" role="dialog" aria-modal="true" aria-label="Command palette">
-    <input class="cmdk-input" id="cmdk-input" type="text" placeholder="Type a command or search views…"
-           role="combobox" aria-expanded="true" aria-controls="cmdk-list" autocomplete="off">
-    <div class="cmdk-list" id="cmdk-list" role="listbox"></div>
-    <div class="cmdk-foot"><kbd>↑↓</kbd> navigate <kbd>↵</kbd> select <kbd>esc</kbd> close</div>
   </div>
 </div>
 

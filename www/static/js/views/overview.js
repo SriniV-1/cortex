@@ -153,6 +153,7 @@ async function loadGames(type) {
     });
 
     container.innerHTML = html || '<div class="sim-note">No recent games found</div>';
+    renderTicker(recentData, scoreboardGames);
 
     if (liveGames.length > 0 && !subscribedGameId) {
       const g = liveGames[0];
@@ -162,6 +163,25 @@ async function loadGames(type) {
     container.innerHTML = '<div class="error-msg">Failed to fetch games</div>';
     showToast('Recent games failed to load', 'error');
   }
+}
+
+// ── Bottom-line ticker — real finals + live games, looped twice for a
+//    seamless marquee ─────────────────────────────────────────────────────
+function renderTicker(recent, live) {
+  const track = $('ticker-track');
+  if (!track) return;
+  const items = [];
+  live.forEach(g => {
+    if (g.status !== 2) return;
+    items.push(`<span>${esc(g.away)} ${g.away_score} <span class="tk-sep">–</span> ${esc(g.home)} ${g.home_score} <span class="tk-final" style="color:var(--green)">LIVE</span></span>`);
+  });
+  recent.filter(g => (g.status || 3) >= 3).slice(0, 14).forEach(g => {
+    const awayWon = g.away_score > g.home_score;
+    items.push(`<span><span class="${awayWon ? 'tk-win' : ''}">${esc(g.away_name)} ${g.away_score}</span> <span class="tk-sep">–</span> <span class="${!awayWon ? 'tk-win' : ''}">${esc(g.home_name)} ${g.home_score}</span> <span class="tk-final">FINAL</span></span>`);
+  });
+  if (!items.length) { track.innerHTML = '<span>Cortex — every play, quantified</span>'; return; }
+  const strip = items.join('<span class="tk-sep">▪</span>');
+  track.innerHTML = strip + '<span class="tk-sep">▪</span>' + strip;
 }
 
 // click-to-subscribe on live games (delegated; replaces inline onclick)
@@ -254,10 +274,19 @@ const ACTION_META = {
   127:{ tag: '·',  name: 'Other' },
 };
 
+function popScore(el, next) {
+  if (el.textContent !== String(next)) {
+    el.classList.remove('pop');
+    void el.offsetWidth; // restart the animation
+    el.classList.add('pop');
+  }
+  el.textContent = next;
+}
+
 function addStreamEvent(ev) {
   if (ev.score_home !== undefined) {
-    $('live-home-score').textContent = ev.score_home;
-    $('live-away-score').textContent = ev.score_away;
+    popScore($('live-home-score'), ev.score_home);
+    popScore($('live-away-score'), ev.score_away);
     $('live-home-score').classList.toggle('leading', ev.score_home > ev.score_away);
     $('live-away-score').classList.toggle('leading', ev.score_away > ev.score_home);
     // keep the similarity form in sync with the live game unless edited

@@ -420,7 +420,7 @@ kbd {
 .ticker-track {
   display: inline-flex; gap: 34px; white-space: nowrap; padding-left: 100%;
   font: 500 11.5px/1 var(--mono); color: #e8d9bf;
-  animation: ticker 38s linear infinite;
+  animation: ticker 75s linear infinite;
 }
 .ticker:hover .ticker-track { animation-play-state: paused; }
 .ticker-track .tk-win { color: #ffce86; font-weight: 700; }

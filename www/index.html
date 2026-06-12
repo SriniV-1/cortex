@@ -13,15 +13,28 @@
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 
-<!-- Painted court lines the whole page sits on -->
+<!-- Painted court lines the whole page sits on — a real full court,
+     50x94 ft at 10 units/ft (NBA dimensions), viewed from above -->
 <div class="court-bg" aria-hidden="true">
-  <svg viewBox="0 0 500 820" preserveAspectRatio="xMidYMid meet" fill="none" stroke="currentColor">
-    <circle cx="250" cy="24" r="66" stroke-width="2"/>
-    <circle cx="250" cy="612" r="60" stroke-width="2"/>
-    <path d="M214,756 A 36 36 0 0 0 286 756" stroke-width="2"/>
-    <line x1="218" y1="748" x2="282" y2="748" stroke-width="3"/>
-    <circle cx="250" cy="760" r="9" stroke-width="2.5"/>
-    <path d="M80,702 A 180 180 0 0 1 420 702" stroke-width="2"/>
+  <svg viewBox="0 0 500 940" preserveAspectRatio="xMidYMid meet" fill="none" stroke="currentColor" stroke-width="2.5">
+    <!-- boundary -->
+    <rect x="4" y="4" width="492" height="932"/>
+    <!-- half-court line + center circle -->
+    <line x1="4" y1="470" x2="496" y2="470"/>
+    <circle cx="250" cy="470" r="60"/>
+    <circle cx="250" cy="470" r="20"/>
+    <!-- top half: key, free-throw circle, backboard, rim, 3pt arc -->
+    <rect x="170" y="4" width="160" height="190"/>
+    <circle cx="250" cy="194" r="60"/>
+    <line x1="220" y1="40" x2="280" y2="40" stroke-width="3.5"/>
+    <circle cx="250" cy="56.5" r="7.5"/>
+    <path d="M30,4 L30,146 A237.5 237.5 0 0 0 470,146 L470,4"/>
+    <!-- bottom half (mirrored) -->
+    <rect x="170" y="746" width="160" height="190"/>
+    <circle cx="250" cy="746" r="60"/>
+    <line x1="220" y1="900" x2="280" y2="900" stroke-width="3.5"/>
+    <circle cx="250" cy="883.5" r="7.5"/>
+    <path d="M30,936 L30,794 A237.5 237.5 0 0 1 470,794 L470,936"/>
   </svg>
 </div>
 

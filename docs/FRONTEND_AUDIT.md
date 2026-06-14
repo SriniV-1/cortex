@@ -48,26 +48,30 @@ keyboard navigation, no command palette — table stakes for the
 infrastructure-product aesthetic (Datadog, Grafana, Linear) this project
 deserves.
 
-## Redesign architecture (what replaced it)
+## Outcome (what was actually built)
+
+After iteration, the final form is a **single-page Courtside dashboard**
+with a full basketball identity — per design direction, the UI celebrates
+what the project is rather than imitating generic infra dashboards, and
+stays deliberately simple (one page, no router, no command palette).
 
 ```
 www/
-  index.html              app shell: sidebar, topbar, view root, command palette
+  index.html              single page: scoreboard header, ticker, hero, dashboard
   static/
-    css/app.css           design system: tokens, primitives, view styles
-    js/app.js             hash router, shell, theme, command palette, shortcuts
+    css/app.css           courtside design system (hardwood, court lines, tokens)
+    js/app.js             shell: theme, status, clock, 30s auto-refresh
     js/api.js             typed fetch wrappers for every backend endpoint
     js/charts.js          dependency-free SVG chart primitives
-    js/data/benchmarks.js measured results (sources cited inline)
-    js/views/*.js         overview, benchmarks, architecture, observability, recruiter
+    js/views/overview.js  the dashboard: WS stream, boards, search, Elo
 ```
 
-- **Hash-routed views** (`#/`, `#/benchmarks`, `#/architecture`,
-  `#/observability`, `#/recruiter`) — works with the existing C++ static
-  handler (`/` + `/static/*`), zero server changes.
-- **Zero runtime dependencies** — Chart.js removed; all charts are hand-rolled
+- **Courtside identity** — to-scale NBA court painted behind the content,
+  hardwood floor with arena spotlights and grain, broadcast hero with the
+  hoop + parabolic shot animation, jumbotron metric tiles, a bottom-line
+  ticker fed by real finals, Big Shoulders Display scoreboard type.
+- **Zero runtime dependencies** — Chart.js removed; charts are hand-rolled
   SVG, consistent with the repo's from-scratch ethos.
-- **Every chart number is a measured result** from the repo's benchmark suite
-  or README performance table — nothing invented.
-- **All previous functionality preserved**: live WS stream, leaderboards,
-  similarity search, Elo rankings/modal/charts, theme toggle, auto-refresh.
+- **All previous functionality preserved**: live WS stream with win
+  probability, leaderboards, search, similarity, Elo rankings/modal/charts,
+  dark (night game) / light (day game) themes, auto-refresh.

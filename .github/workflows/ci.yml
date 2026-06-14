@@ -54,6 +54,8 @@ jobs:
             libpq-dev libspdlog-dev libsimdjson-dev \
             libcurl4-openssl-dev libssl-dev \
             libhiredis-dev libgtest-dev \
+            libgrpc++-dev libprotobuf-dev protobuf-compiler \
+            protobuf-compiler-grpc \
             redis-server
 
       - name: Build libpqxx from source (Ubuntu)
@@ -105,6 +107,7 @@ jobs:
           brew install cmake ninja pkg-config \
             libpqxx spdlog simdjson curl openssl \
             hiredis googletest onnxruntime llhttp \
+            grpc protobuf abseil \
             postgresql@15 redis
 
       - name: Start services (macOS)
@@ -130,10 +133,17 @@ jobs:
 
       - name: Configure CMake
         run: |
+          # On macOS, gRPC/protobuf/abseil are found via CMake CONFIG packages
+          # under the Homebrew prefix, which CMake does not search by default.
+          PREFIX_ARG=""
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            PREFIX_ARG="-DCMAKE_PREFIX_PATH=$(brew --prefix)"
+          fi
           cmake -B build \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            $PREFIX_ARG
 
       - name: Build
         run: cmake --build build -j$(nproc 2>/dev/null || sysctl -n hw.logicalcpu)

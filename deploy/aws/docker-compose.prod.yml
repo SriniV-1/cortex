@@ -1,0 +1,91 @@
+# Production stack for a single arm64 VM (AWS Graviton EC2, or any Docker host).
+#
+#   cd deploy/aws
+#   cp .env.example .env && edit .env
+#   docker compose -f docker-compose.prod.yml up -d --build   # build + start
+#   ./load-data.sh                                            # one-time data load
+#
+# Only Caddy publishes ports (80/443). The server, Postgres and Redis stay on
+# the internal network — not reachable from the internet. The EC2 security
+# group should open only 22 (SSH, your IP), 80 and 443.
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cortex
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: cortex
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # schema is applied once, when the data volume is first created
+      - ../../sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cortex"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # cache-only: cap memory and evict LRU, no disk persistence needed
+    command: ["redis-server", "--save", "", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  cortex:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: cortex:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # No --jwt-secret/--api-key: every data route is read-only GET, so the
+    # public dashboard runs unauthenticated by design (nothing to protect).
+    command:
+      - "--port"
+      - "8080"
+      - "--db"
+      - "host=db port=5432 dbname=cortex user=cortex password=${POSTGRES_PASSWORD}"
+      - "--redis"
+      - "redis"
+      - "--model"
+      - "data/models/win_prob.onnx"
+      - "--www"
+      - "./www"
+      - "--live"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - cortex
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

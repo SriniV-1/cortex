@@ -1,0 +1,16 @@
+# Caddy reverse proxy with automatic HTTPS (Let's Encrypt).
+# DOMAIN and ACME_EMAIL are injected from the environment (see compose).
+#
+# Caddy obtains and renews the TLS certificate automatically over the HTTP-01
+# challenge on port 80, then serves the dashboard over HTTPS on 443.
+# reverse_proxy transparently forwards WebSocket upgrades (the /live/{gameId}
+# stream), so no extra config is needed for the live feed.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy cortex:8080
+}

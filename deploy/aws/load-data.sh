@@ -22,14 +22,20 @@ etl() { $COMPOSE run --rm --entrypoint ./cortex_etl cortex "$@"; }
 
 SEASONS="2019 2020 2021 2022 2023 2024 2025"
 
+# Single-threaded: with --threads 2, two ETL workers insert into the shared
+# dimension tables (players/teams) concurrently and can acquire row locks in
+# opposite order, deadlocking Postgres. One worker is plenty here (the loader
+# runs once) and is deadlock-free.
+THREADS=1
+
 for y in $SEASONS; do
   echo ">> season $y — regular"
-  etl --conn "$CONN" --season "$y" --threads 2
+  etl --conn "$CONN" --season "$y" --threads "$THREADS"
 done
 
 for y in $SEASONS; do
   echo ">> season $y — playoffs"
-  etl --conn "$CONN" --season "$y" --playoffs --threads 2
+  etl --conn "$CONN" --season "$y" --playoffs --threads "$THREADS"
 done
 
 echo ">> backfilling dimension tables (teams / players)"

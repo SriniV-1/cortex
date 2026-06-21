@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is git-ignored.
+
+# Your IP, so only you can SSH. Find it with: curl -s https://checkip.amazonaws.com
+ssh_cidr = "203.0.113.10/32"
+
+# Your SSH public key. Derive it from the .pem AWS gave you:
+#   ssh-keygen -y -f ~/.ssh/cortex-aws.pem
+ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2E... your key here"
+
+# Optional overrides (defaults shown):
+# region         = "us-east-1"
+# instance_type  = "t4g.small"
+# root_volume_gb = 20
+# name           = "cortex"

@@ -33,3 +33,11 @@ data/cache/
 .idea/
 .claude/
 *.swp
+
+# Terraform — never commit state (may contain secrets) or local vars
+deploy/aws/terraform/.terraform/
+deploy/aws/terraform/*.tfstate
+deploy/aws/terraform/*.tfstate.*
+deploy/aws/terraform/*.tfvars
+!deploy/aws/terraform/*.tfvars.example
+deploy/aws/terraform/.terraform.lock.hcl

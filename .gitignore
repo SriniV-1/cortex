@@ -41,3 +41,4 @@ deploy/aws/terraform/*.tfstate.*
 deploy/aws/terraform/*.tfvars
 !deploy/aws/terraform/*.tfvars.example
 deploy/aws/terraform/.terraform.lock.hcl
+ROADMAP.md

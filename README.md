@@ -4,6 +4,13 @@ C++20 system that ingests NBA game data, computes real-time statistics, and serv
 
 **Stack:** C++20 · PostgreSQL 15 · Redis 7 · gRPC · ONNXRuntime · ARM NEON SIMD · kqueue/epoll · llhttp
 
+### 🏀 Live demo — **[cortex-nba.duckdns.org](https://cortex-nba.duckdns.org)**
+
+The full *Courtside* dashboard, running live on **AWS EC2** (Graviton `t4g.small`,
+arm64) behind **Caddy** with an automatic **Let's Encrypt** TLS cert — served by
+the same hand-written C++ HTTP/WebSocket engine described below. No install
+required; just open it in a browser.
+
 ---
 
 ## Running it (three commands)

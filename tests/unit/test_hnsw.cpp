@@ -167,7 +167,7 @@ TEST(GameStateIndex, DefaultBackendIsHnsw) {
 // scored by distance: an approximate hit counts if it is no farther than the
 // exact k-th nearest neighbor.
 TEST(GameStateIndex, HnswMatchesExactOnRealisticStates) {
-    constexpr size_t N = 30'000;
+    constexpr size_t N = 5'000;   // keeps the Debug+ASan CI run well under the 60 s ctest timeout
     constexpr int    K = 10;
 
     std::mt19937 rng(7);

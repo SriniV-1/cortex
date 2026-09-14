@@ -5,20 +5,27 @@
 // Reference: Malkov & Yashunin, "Efficient and Robust Approximate Nearest
 // Neighbor using Hierarchical Navigable Small World Graphs", 2018.
 //
+// Memory layout (sized for ~4.7M vectors on a 2 GB host):
+//   - build() does NOT copy vectors — the graph reads the caller's array, which
+//     must outlive the index (GameStateIndex owns it).
+//   - Layer-0 links: one flat uint32 array, (M0 + 1) slots per node, slot 0 = count.
+//   - Upper-layer links: one flat uint32 pool, (M + 1) slots per (node, layer).
+//   - Visited set: thread-local generation-stamped array, no hashing per query.
+//
 // Parameters:
-//   M              — max connections per node per layer (default 16)
-//   efConstruction — beam width during insertion (default 200)
+//   M              — max links per node on upper layers (layer 0 allows 2*M)
+//   efConstruction — beam width during insertion
+//   efSearch       — default beam width during queries
 //
 // Usage:
 //   HNSWIndex idx(M, efConstruction);
-//   idx.build(vectors);                     // batch insert
-//   auto results = idx.search(query, k, ef); // returns (dist_sq, index) pairs
+//   idx.build(vectors);                      // batch build, ids = 0..N-1
+//   auto results = idx.search(query, k, ef); // (dist_sq, id) pairs, ascending
 
 #include "analytics/GameStateIndex.hpp"   // GameStateVec, l2_dist_sq
 
 #include <cstddef>
 #include <cstdint>
-#include <mutex>
 #include <random>
 #include <utility>
 #include <vector>
@@ -27,79 +34,79 @@ namespace cortex::analytics {
 
 class HNSWIndex {
 public:
-    explicit HNSWIndex(size_t M = 16, size_t efConstruction = 200);
-    ~HNSWIndex() = default;
+    explicit HNSWIndex(size_t M = 16, size_t efConstruction = 200, size_t efSearch = 64);
 
     HNSWIndex(const HNSWIndex&)            = delete;
     HNSWIndex& operator=(const HNSWIndex&) = delete;
     HNSWIndex(HNSWIndex&&)                 = default;
     HNSWIndex& operator=(HNSWIndex&&)      = default;
 
-    // Insert a single vector with the given external id (index into the
-    // caller's metadata arrays).
+    // Insert a single vector (copied) with the given external id.
+    // Use either insert() or build() on one index, not both.
     void insert(size_t id, const GameStateVec& vec);
 
-    // Search for the k nearest neighbors of query.
-    // ef controls the beam width (higher = more accurate, slower).
-    // Returns pairs of (squared L2 distance, id) sorted by distance ascending.
+    // Search for the k nearest neighbors of query. ef = beam width
+    // (0 → efSearch). Returns (squared L2 distance, id) sorted ascending.
     std::vector<std::pair<float, size_t>> search(const GameStateVec& query,
                                                   size_t k,
                                                   size_t ef = 0) const;
 
-    // Batch-build the index from a contiguous vector array.
-    // ids are 0, 1, ..., vectors.size()-1.
+    // Batch-build over `vectors` (ids 0..N-1) without copying them.
     void build(const std::vector<GameStateVec>& vectors);
 
-    size_t size()      const noexcept { return num_elements_; }
-    size_t max_level() const noexcept { return max_level_; }
+    size_t size()         const noexcept { return levels_.size(); }
+    size_t max_level()    const noexcept { return max_level_; }
+    size_t memory_bytes() const noexcept;
+
+    // Number of nodes reachable from the entry point over layer-0 links
+    // (== size() for a fully connected graph). Diagnostic, O(N).
+    size_t reachable_count() const;
 
 private:
-    // ── Graph node ───────────────────────────────────────────────────────
-    struct Node {
-        GameStateVec vec{};
-        size_t       external_id = 0;
-        size_t       level       = 0;          // highest layer this node lives in
-        // neighbors_[l] = neighbor list at layer l
-        std::vector<std::vector<size_t>> neighbors;
-    };
+    const GameStateVec& vec(uint32_t i) const noexcept { return data_[i]; }
 
-    // ── Parameters ───────────────────────────────────────────────────────
-    size_t M_;                // max connections per layer
-    size_t M_max0_;           // max connections at layer 0 (= 2*M)
-    size_t ef_construction_;
-    double m_L_;              // 1 / ln(M) — controls level distribution
+    uint32_t*       links(uint32_t node, size_t layer) noexcept;
+    const uint32_t* links(uint32_t node, size_t layer) const noexcept;
 
-    // ── Graph storage ────────────────────────────────────────────────────
-    std::vector<Node>   nodes_;        // indexed by internal node id
-    size_t              entry_point_ = 0;
-    size_t              max_level_   = 0;
-    size_t              num_elements_= 0;
-
-    mutable std::mutex  build_mutex_;
-    std::mt19937        rng_;
-
-    // ── Helpers ──────────────────────────────────────────────────────────
+    void   add_node(size_t external_id);
     size_t random_level();
 
-    // Greedy search from entry_point down to target_layer, returning the
-    // closest node at that layer.
-    size_t greedy_search(const GameStateVec& query, size_t entry,
-                         size_t top_layer, size_t target_layer) const;
+    // Greedy hop through layers [from_layer .. to_layer], returning the closest
+    // node found at to_layer.
+    uint32_t greedy_descend(const GameStateVec& q, uint32_t entry,
+                            size_t from_layer, size_t to_layer) const;
 
-    // Beam search at a single layer. Returns up to ef closest candidates
-    // as (dist_sq, internal_node_id) sorted ascending.
-    std::vector<std::pair<float, size_t>>
-    search_layer(const GameStateVec& query, size_t entry,
-                 size_t ef, size_t layer) const;
+    // Beam search at one layer → up to ef (dist_sq, internal id), ascending.
+    std::vector<std::pair<float, uint32_t>>
+    search_layer(const GameStateVec& q, uint32_t entry, size_t ef, size_t layer) const;
 
-    // Select up to M best neighbors from candidates for the given node,
-    // using the simple heuristic (keep M closest).
-    static std::vector<size_t>
-    select_neighbors(const std::vector<std::pair<float, size_t>>& candidates,
-                     size_t M);
+    // Neighbor-selection heuristic (paper Alg. 4, keepPrunedConnections):
+    // keeps candidates that are closer to `base` than to any already-kept
+    // neighbor, then backfills with pruned ones up to M. `cands` must be sorted
+    // ascending; it is replaced by the selection.
+    void select_neighbors(std::vector<std::pair<float, uint32_t>>& cands, size_t M) const;
 
-    // Shrink a neighbor list to at most max_M entries, keeping closest.
-    void shrink_neighbors(size_t node_id, size_t layer, size_t max_M);
+    // Link `node` to `selected` at `layer` and add pruned reverse links.
+    void connect(uint32_t node, size_t layer,
+                 const std::vector<std::pair<float, uint32_t>>& selected);
+
+    size_t M_;
+    size_t M0_;
+    size_t ef_construction_;
+    size_t ef_search_;
+    double m_L_;
+
+    const GameStateVec*     data_ = nullptr;   // build(): caller's array; insert(): owned_
+    std::vector<GameStateVec> owned_;
+    std::vector<uint32_t>   external_ids_;
+    std::vector<uint8_t>    levels_;
+    std::vector<uint32_t>   links0_;
+    std::vector<uint32_t>   upper_offset_;
+    std::vector<uint32_t>   upper_links_;
+
+    uint32_t     entry_point_ = 0;
+    size_t       max_level_   = 0;
+    std::mt19937 rng_;
 };
 
 } // namespace cortex::analytics

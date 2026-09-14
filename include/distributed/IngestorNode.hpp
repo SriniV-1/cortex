@@ -6,8 +6,10 @@
 //   2. Registers with the Coordinator via gRPC.
 //   3. Opens a StreamAssignments stream to receive game assignments.
 //   4. Sends heartbeats every 2 seconds.
-//   5. For each assigned game, spawns a poll thread that fetches play-by-play
-//      from NBA S3 and pushes events into a shared RingBuffer.
+//   5. For each assigned game, spawns a poll thread that first replays the
+//      game's full play-by-play from NBA S3 (rebuilding accumulator state for
+//      games reassigned from a dead worker), then polls for new events and
+//      pushes them into a shared RingBuffer.
 //   6. On REVOKE or stop(), cleanly shuts down per-game poll threads.
 //   7. On stop(), sends Deregister RPC for immediate game reassignment.
 //

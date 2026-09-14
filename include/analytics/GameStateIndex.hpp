@@ -1,14 +1,13 @@
 #pragma once
-// GameStateIndex — SIMD-vectorized game state similarity search.
+// GameStateIndex — game state similarity search.
 //
-// Encodes every play_event in the corpus as a normalized 8-float feature vector,
-// then stores them in an AoS (array-of-structs) layout for a brute-force L2
-// scan using ARM NEON intrinsics.
+// Encodes every play_event in the corpus as a normalized 8-float feature vector
+// stored AoS for an exact brute-force L2 scan using ARM NEON intrinsics, then
+// builds an HNSW graph over the same array. Queries are served by the HNSW
+// graph once it is ready; the exact NEON scan serves while the graph builds and
+// remains available as query_exact() for recall measurement.
 //
-// Query: returns top-K nearest historical game states in ~2–8 ms across 3.7M
-// events (memory-bandwidth limited, no approximation, no external library).
-//
-// Memory footprint: ~118 MB for 3.7 M events × 8 floats × 4 bytes.
+// Memory footprint: ~150 MB of vectors for 4.7 M events, plus the HNSW links.
 //
 // Thread model:
 //   - build_from_db() is called once from a background thread at startup.
@@ -102,22 +101,44 @@ public:
     // Typically 15–30 s for 3.7 M events.
     void build_from_db(pqxx::connection& conn);
 
-    // Return the K most similar historical game states.
+    // Load pre-encoded vectors (metadata left empty). Used by tests and
+    // synthetic benchmarks; builds the HNSW graph synchronously if selected.
+    void build_from_vectors(std::vector<GameStateVec> vecs);
+
+    // Return the K most similar historical game states. Served by the HNSW
+    // graph once hnsw_ready(), otherwise by the exact NEON scan.
     // Thread-safe after loaded() returns true.
     std::vector<GameStateMatch> query(const GameStateVec& q, int k = 10) const;
 
-    // True once build_from_db() has completed successfully.
-    bool   loaded()  const noexcept { return loaded_.load(std::memory_order_acquire); }
-    size_t size()    const noexcept { return N_; }
+    // Exact top-K via the brute-force NEON scan (reference for recall).
+    std::vector<GameStateMatch> query_exact(const GameStateVec& q, int k = 10) const;
 
-    // Milliseconds taken to build (set at end of build_from_db).
-    double build_ms() const noexcept { return build_ms_; }
+    // True once feature vectors are loaded (exact scan available).
+    bool   loaded()     const noexcept { return loaded_.load(std::memory_order_acquire); }
+    // True once the HNSW graph is built and serving queries.
+    bool   hnsw_ready() const noexcept { return hnsw_ready_.load(std::memory_order_acquire); }
+    size_t size()       const noexcept { return N_; }
 
-    // Set the similarity backend: "brute_force" (default) or "hnsw".
+    // Milliseconds taken to load vectors / build the HNSW graph.
+    double build_ms()      const noexcept { return build_ms_; }
+    double hnsw_build_ms() const noexcept { return hnsw_build_ms_; }
+
+    // Set the similarity backend before building: "hnsw" (default) or "brute_force".
     void set_similarity_backend(const std::string& backend);
     const std::string& similarity_backend() const noexcept { return similarity_backend_; }
 
+    // The HNSW graph (nullptr until hnsw_ready()); exposed for diagnostics.
+    const HNSWIndex* hnsw_graph() const noexcept { return hnsw_ready() ? hnsw_index_.get() : nullptr; }
+
+    // HNSW query beam width (recall/latency knob; default 64).
+    void   set_hnsw_ef_search(size_t ef) noexcept { hnsw_ef_search_.store(ef); }
+    size_t hnsw_ef_search() const noexcept { return hnsw_ef_search_.load(); }
+
 private:
+    void finish_build();
+    std::vector<std::pair<float, size_t>> scan_exact(const GameStateVec& q, int k) const;
+    std::vector<GameStateMatch> to_matches(const std::vector<std::pair<float, size_t>>& nearest) const;
+
     // AoS feature storage: vecs_[i].v[0..7] = 8 features for event i.
     // 32-byte alignment enables 2-NEON-load L2 distance computation.
     std::vector<GameStateVec> vecs_;
@@ -133,13 +154,25 @@ private:
     std::vector<std::string>  home_tricodes_;
     std::vector<std::string>  away_tricodes_;
 
-    size_t N_       = 0;
-    double build_ms_= 0.0;
+    size_t N_            = 0;
+    double build_ms_     = 0.0;
+    double hnsw_build_ms_= 0.0;
     std::atomic<bool> loaded_{false};
+    std::atomic<bool> hnsw_ready_{false};
 
-    // Similarity backend: "brute_force" (default) or "hnsw".
-    std::string                   similarity_backend_{"brute_force"};
+    // Similarity backend: "hnsw" (default) or "brute_force".
+    std::string                   similarity_backend_{"hnsw"};
     std::unique_ptr<HNSWIndex>    hnsw_index_;
+    std::atomic<size_t>           hnsw_ef_search_{64};
+
+    // Identical game states are collapsed before graph construction (the corpus
+    // repeats some states thousands of times, which would otherwise form
+    // disconnected islands of duplicates in the graph). The graph indexes
+    // unique_vecs_; unique state u owns events
+    // unique_events_[unique_offsets_[u] .. unique_offsets_[u + 1]).
+    std::vector<GameStateVec>     unique_vecs_;
+    std::vector<uint32_t>         unique_offsets_;
+    std::vector<uint32_t>         unique_events_;
 };
 
 } // namespace cortex::analytics

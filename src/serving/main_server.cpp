@@ -159,6 +159,8 @@ int main(int argc, char** argv) {
 
     // ── Similarity index (built in background — HTTP server starts immediately) ──
     GameStateIndex sim_index;
+    if (const char* backend = std::getenv("CORTEX_SIMILARITY_BACKEND"))
+        sim_index.set_similarity_backend(backend);   // "hnsw" (default) or "brute_force"
     std::thread   sim_builder;
     if (!db_conn.empty()) {
         sim_builder = std::thread([&]() {

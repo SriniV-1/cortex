@@ -1,15 +1,17 @@
-// GameStateIndex — SIMD-vectorized game state similarity search.
+// GameStateIndex — game state similarity search (HNSW + exact NEON scan).
 //
 // Core design:
 //   1. build_from_db()  — one SQL query with LAG() window function computes
 //                         10-event rolling momentum per game; rows fetched via
 //                         server-side cursor in 50 K-row batches.
 //   2. encode_game_state() — maps raw fields → normalized 8-float vector.
-//   3. query()          — brute-force AoS L2 scan; NEON path (Apple Silicon /
-//                         ARMv8) uses vld1q_f32 + vfmaq_f32 + vaddvq_f32 for
-//                         2 NEON loads per candidate; scalar fallback for x86.
-//   4. Top-K min-heap   — std::priority_queue max-heap of size K; prunes with
-//                         threshold to reduce heap operations.
+//   3. finish_build()   — exposes the exact scan, then builds the HNSW graph
+//                         over the same vectors (no copy) and switches query()
+//                         to it once ready.
+//   4. query_exact()    — brute-force AoS L2 scan; NEON path (Apple Silicon /
+//                         ARMv8) uses vld1q_f32 + vfmaq_f32 + vaddvq_f32;
+//                         scalar fallback for x86; size-K max-heap with a
+//                         pruning threshold.
 
 #include "analytics/GameStateIndex.hpp"
 #include "analytics/HNSWIndex.hpp"
@@ -21,8 +23,11 @@
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <queue>
 #include <stdexcept>
 #include <utility>
@@ -220,15 +225,84 @@ void GameStateIndex::build_from_db(pqxx::connection& conn) {
     log->info("GameStateIndex: {} events loaded in {:.1f} s, {:.0f} MB feature store",
               N_, build_ms_ / 1000.0, mb);
 
-    // If HNSW backend is selected, build the graph index after loading vectors.
-    if (similarity_backend_ == "hnsw" && N_ > 0) {
-        log->info("GameStateIndex: building HNSW index over {} vectors…", N_);
-        hnsw_index_ = std::make_unique<HNSWIndex>(/*M=*/16, /*efConstruction=*/200);
-        hnsw_index_->build(vecs_);
-        log->info("GameStateIndex: HNSW index ready (max_level={})", hnsw_index_->max_level());
-    }
+    finish_build();
+}
 
+// ── build_from_vectors ──────────────────────────────────────────────────────
+
+void GameStateIndex::build_from_vectors(std::vector<GameStateVec> vecs) {
+    N_    = vecs.size();
+    vecs_ = std::move(vecs);
+    event_ids_.resize(N_);
+    for (size_t i = 0; i < N_; ++i) event_ids_[i] = static_cast<int64_t>(i);
+    score_homes_.assign(N_, 0);
+    score_aways_.assign(N_, 0);
+    periods_.assign(N_, 0);
+    home_wons_.assign(N_, 0);
+    game_ids_.assign(N_, {});
+    dates_.assign(N_, {});
+    home_tricodes_.assign(N_, {});
+    away_tricodes_.assign(N_, {});
+    finish_build();
+}
+
+// ── finish_build — expose exact scan, then build the HNSW graph ─────────────
+
+void GameStateIndex::finish_build() {
+    // The exact NEON scan can serve as soon as vectors are in memory.
     loaded_.store(true, std::memory_order_release);
+
+    if (similarity_backend_ != "hnsw" || N_ == 0) return;
+
+    auto log = cortex::get_logger("similarity");
+    const auto t0 = std::chrono::steady_clock::now();
+
+    // Collapse identical states: sort event indices by vector bytes (ties by
+    // index for determinism), then emit one unique vector per run.
+    std::vector<uint32_t> order(N_);
+    std::iota(order.begin(), order.end(), uint32_t{0});
+    std::sort(order.begin(), order.end(), [this](uint32_t a, uint32_t b) {
+        const int c = std::memcmp(vecs_[a].v, vecs_[b].v, sizeof(vecs_[a].v));
+        return c < 0 || (c == 0 && a < b);
+    });
+
+    unique_vecs_.clear();
+    unique_offsets_.clear();
+    for (size_t i = 0; i < N_; ++i) {
+        if (i == 0 || std::memcmp(vecs_[order[i]].v, vecs_[order[i - 1]].v,
+                                  sizeof(vecs_[0].v)) != 0) {
+            unique_offsets_.push_back(static_cast<uint32_t>(i));
+            unique_vecs_.push_back(vecs_[order[i]]);
+        }
+    }
+    unique_offsets_.push_back(static_cast<uint32_t>(N_));
+    unique_events_ = std::move(order);
+
+    log->info("GameStateIndex: {} events collapse to {} unique game states",
+              N_, unique_vecs_.size());
+
+    // Graph parameters; override with CORTEX_HNSW_M / CORTEX_HNSW_EF_CONSTRUCTION.
+    // Empty, non-numeric or zero values fall back to the default (a zero beam
+    // width would silently build a useless graph).
+    auto env_size = [](const char* name, size_t fallback) {
+        const char* v = std::getenv(name);
+        const unsigned long parsed = v ? std::strtoul(v, nullptr, 10) : 0;
+        return parsed > 0 ? static_cast<size_t>(parsed) : fallback;
+    };
+    // Defaults chosen on the 4.7M-event corpus: M=16/efC=200 gives 0.978
+    // recall@10 at ef=64 on realistic game states with a 402 MB graph.
+    const size_t M   = env_size("CORTEX_HNSW_M", 16);
+    const size_t efc = env_size("CORTEX_HNSW_EF_CONSTRUCTION", 200);
+
+    auto graph = std::make_unique<HNSWIndex>(M, efc);
+    graph->build(unique_vecs_);
+    hnsw_index_ = std::move(graph);
+
+    hnsw_build_ms_ = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - t0).count();
+    log->info("GameStateIndex: HNSW graph serving queries ({} unique states, {:.1f} s)",
+              unique_vecs_.size(), hnsw_build_ms_ / 1000.0);
+    hnsw_ready_.store(true, std::memory_order_release);
 }
 
 // ── set_similarity_backend ──────────────────────────────────────────────────
@@ -241,48 +315,69 @@ void GameStateIndex::set_similarity_backend(const std::string& backend) {
     similarity_backend_ = backend;
 }
 
-// ── query — SIMD brute-force or HNSW ────────────────────────────────────────
+// ── query — HNSW graph once ready, exact NEON scan otherwise ────────────────
 
 std::vector<GameStateMatch> GameStateIndex::query(const GameStateVec& q, int k) const {
     if (!loaded() || N_ == 0) return {};
     k = std::max(1, std::min(k, static_cast<int>(N_)));
 
-    // Collect (dist_sq, index) pairs from either backend.
+    if (!hnsw_ready()) return to_matches(scan_exact(q, k));
+
+    // Nearest unique states, expanded to their events until K results.
+    const auto states = hnsw_index_->search(q, static_cast<size_t>(k), hnsw_ef_search());
     std::vector<std::pair<float, size_t>> nearest;
+    nearest.reserve(static_cast<size_t>(k));
+    for (const auto& [dist_sq, uid] : states) {
+        for (uint32_t j = unique_offsets_[uid];
+             j < unique_offsets_[uid + 1] && nearest.size() < static_cast<size_t>(k); ++j)
+            nearest.push_back({dist_sq, unique_events_[j]});
+        if (nearest.size() >= static_cast<size_t>(k)) break;
+    }
+    return to_matches(nearest);
+}
 
-    if (similarity_backend_ == "hnsw" && hnsw_index_) {
-        // ── HNSW approximate search ────────────────────────────────────────
-        nearest = hnsw_index_->search(q, static_cast<size_t>(k));
-    } else {
-        // ── Brute-force scan ───────────────────────────────────────────────
-        using HeapEntry = std::pair<float, size_t>;
-        std::priority_queue<HeapEntry> heap;
-        float threshold = std::numeric_limits<float>::max();
+std::vector<GameStateMatch> GameStateIndex::query_exact(const GameStateVec& q, int k) const {
+    if (!loaded() || N_ == 0) return {};
+    k = std::max(1, std::min(k, static_cast<int>(N_)));
+    return to_matches(scan_exact(q, k));
+}
 
-        for (size_t i = 0; i < N_; ++i) {
-            float dist_sq = l2_dist_sq(q, vecs_[i]);
+// ── scan_exact — brute-force NEON L2 scan with a size-K max-heap ────────────
 
-            if (dist_sq < threshold || static_cast<int>(heap.size()) < k) {
-                if (static_cast<int>(heap.size()) >= k) heap.pop();
-                heap.push({dist_sq, i});
-                if (static_cast<int>(heap.size()) >= k)
-                    threshold = heap.top().first;
-            }
+std::vector<std::pair<float, size_t>> GameStateIndex::scan_exact(const GameStateVec& q, int k) const {
+    using HeapEntry = std::pair<float, size_t>;
+    std::priority_queue<HeapEntry> heap;
+    float threshold = std::numeric_limits<float>::max();
+
+    for (size_t i = 0; i < N_; ++i) {
+        float dist_sq = l2_dist_sq(q, vecs_[i]);
+
+        if (dist_sq < threshold || static_cast<int>(heap.size()) < k) {
+            if (static_cast<int>(heap.size()) >= k) heap.pop();
+            heap.push({dist_sq, i});
+            if (static_cast<int>(heap.size()) >= k)
+                threshold = heap.top().first;
         }
-
-        nearest.reserve(heap.size());
-        while (!heap.empty()) {
-            nearest.push_back(heap.top());
-            heap.pop();
-        }
-        std::reverse(nearest.begin(), nearest.end());
     }
 
-    // Convert (dist_sq, idx) → GameStateMatch results.
+    std::vector<HeapEntry> nearest;
+    nearest.reserve(heap.size());
+    while (!heap.empty()) {
+        nearest.push_back(heap.top());
+        heap.pop();
+    }
+    std::reverse(nearest.begin(), nearest.end());
+    return nearest;
+}
+
+// ── to_matches — (dist_sq, idx) → GameStateMatch ────────────────────────────
+
+std::vector<GameStateMatch> GameStateIndex::to_matches(
+        const std::vector<std::pair<float, size_t>>& nearest) const {
     std::vector<GameStateMatch> results;
     results.reserve(nearest.size());
 
-    for (auto& [dist_sq, idx] : nearest) {
+    for (const auto& [dist_sq, idx] : nearest) {
         const float sim = 1.0f / (1.0f + std::sqrt(dist_sq));
 
         GameStateMatch m;

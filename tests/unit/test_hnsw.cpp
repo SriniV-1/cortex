@@ -156,6 +156,90 @@ TEST(HNSWIndex, DeterministicResults) {
     }
 }
 
+// ── GameStateIndex serving path ─────────────────────────────────────────────
+
+TEST(GameStateIndex, DefaultBackendIsHnsw) {
+    GameStateIndex index;
+    EXPECT_EQ(index.similarity_backend(), "hnsw");
+}
+
+// Realistic game states repeat heavily (many identical vectors), so recall is
+// scored by distance: an approximate hit counts if it is no farther than the
+// exact k-th nearest neighbor.
+TEST(GameStateIndex, HnswMatchesExactOnRealisticStates) {
+    constexpr size_t N = 30'000;
+    constexpr int    K = 10;
+
+    std::mt19937 rng(7);
+    std::uniform_int_distribution<int> score(0, 140), period(1, 4),
+                                       clock(0, 720), mom(-15, 15);
+    std::vector<GameStateVec> vecs;
+    vecs.reserve(N);
+    for (size_t i = 0; i < N; ++i)
+        vecs.push_back(encode_game_state(score(rng), score(rng), period(rng),
+                                         clock(rng), mom(rng)));
+
+    GameStateIndex index;
+    index.build_from_vectors(std::move(vecs));
+    ASSERT_TRUE(index.loaded());
+    ASSERT_TRUE(index.hnsw_ready());
+
+    size_t hits = 0, total = 0;
+    for (int q = 0; q < 200; ++q) {
+        auto qv = encode_game_state(score(rng), score(rng), period(rng),
+                                    clock(rng), mom(rng));
+        auto exact  = index.query_exact(qv, K);
+        auto approx = index.query(qv, K);
+        ASSERT_EQ(exact.size(), static_cast<size_t>(K));
+        const float kth_sim = exact.back().similarity;  // lowest exact similarity
+        for (const auto& m : approx)
+            if (m.similarity >= kth_sim - 1e-6f) ++hits;
+        total += K;
+    }
+    const double recall = static_cast<double>(hits) / total;
+    EXPECT_GE(recall, 0.95) << "GameStateIndex HNSW recall@10 = " << recall;
+}
+
+// The real corpus is duplicate-heavy: some states (e.g. 0-0 at tip-off) repeat
+// thousands of times. With more copies of a state than a node has links, naive
+// HNSW fills every link with identical copies and the copies become an island.
+// Recall must hold when each state repeats far more than 2*M times.
+TEST(GameStateIndex, HnswRecallWithHeavyDuplicates) {
+    constexpr size_t UNIQUE = 200;
+    constexpr size_t N      = 30'000;
+    constexpr int    K      = 10;
+
+    std::mt19937 rng(11);
+    std::uniform_int_distribution<int> score(0, 140), period(1, 4),
+                                       clock(0, 720), mom(-15, 15);
+    std::vector<GameStateVec> states;
+    for (size_t i = 0; i < UNIQUE; ++i)
+        states.push_back(encode_game_state(score(rng), score(rng), period(rng),
+                                           clock(rng), mom(rng)));
+    std::uniform_int_distribution<size_t> pick(0, UNIQUE - 1);
+    std::vector<GameStateVec> vecs;
+    vecs.reserve(N);
+    for (size_t i = 0; i < N; ++i) vecs.push_back(states[pick(rng)]);
+
+    GameStateIndex index;
+    index.build_from_vectors(std::move(vecs));
+    ASSERT_TRUE(index.hnsw_ready());
+
+    size_t hits = 0, total = 0;
+    for (int q = 0; q < 200; ++q) {
+        auto qv = encode_game_state(score(rng), score(rng), period(rng),
+                                    clock(rng), mom(rng));
+        auto exact  = index.query_exact(qv, K);
+        auto approx = index.query(qv, K);
+        const float kth_sim = exact.back().similarity;
+        for (const auto& m : approx)
+            if (m.similarity >= kth_sim - 1e-6f) ++hits;
+        total += K;
+    }
+    const double recall = static_cast<double>(hits) / total;
+    EXPECT_GE(recall, 0.95) << "duplicate-heavy recall@10 = " << recall;
+}
+
 TEST(HNSWIndex, MaxLevelReasonable) {
     auto data = generate_random_vecs(1000, 88);
     HNSWIndex idx(16, 200);

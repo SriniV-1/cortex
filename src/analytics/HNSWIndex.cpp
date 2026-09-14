@@ -1,272 +1,275 @@
 // HNSWIndex — Hierarchical Navigable Small World graph implementation.
 //
-// Core algorithm follows Malkov & Yashunin (2018):
-//   - Multi-layer graph with exponentially decaying level distribution
-//   - Greedy descent from top layer, beam search at insertion layer
-//   - Simple neighbor selection (keep M closest)
+// Follows Malkov & Yashunin (2018): exponentially decaying level distribution,
+// greedy descent through upper layers, beam search at the target layer, and
+// the neighbor-selection heuristic with pruned-connection backfill (which keeps
+// the graph connected when many game states are exact duplicates).
 //
-// Uses the shared l2_dist_sq() from GameStateIndex.hpp for SIMD-accelerated
-// distance computation on ARM NEON (Apple Silicon).
+// Distances use the shared NEON l2_dist_sq() from GameStateIndex.hpp.
 
 #include "analytics/HNSWIndex.hpp"
 #include "common/Logger.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <functional>
-#include <limits>
 #include <queue>
-#include <unordered_set>
 
 namespace cortex::analytics {
 
-// ── Constructor ─────────────────────────────────────────────────────────────
+namespace {
 
-HNSWIndex::HNSWIndex(size_t M, size_t efConstruction)
+// Generation-stamped visited set, one per thread. A node is visited in the
+// current search iff tag[node] == cur, so resetting between searches is O(1).
+struct VisitedTags {
+    std::vector<uint16_t> tag;
+    uint16_t              cur = 0;
+};
+
+VisitedTags& visited_for(size_t n) {
+    static thread_local VisitedTags vt;
+    if (vt.tag.size() < n) vt.tag.resize(std::max(n * 2, size_t{1024}), 0);
+    if (++vt.cur == 0) {                       // wrapped: clear stale stamps
+        std::fill(vt.tag.begin(), vt.tag.end(), 0);
+        vt.cur = 1;
+    }
+    return vt;
+}
+
+} // namespace
+
+HNSWIndex::HNSWIndex(size_t M, size_t efConstruction, size_t efSearch)
     : M_(M)
-    , M_max0_(2 * M)
+    , M0_(2 * M)
     , ef_construction_(efConstruction)
+    , ef_search_(efSearch)
     , m_L_(1.0 / std::log(static_cast<double>(M)))
-    , rng_(42)  // deterministic seed for reproducibility
+    , rng_(42)  // deterministic seed for reproducible graphs
 {}
 
-// ── Level generation ────────────────────────────────────────────────────────
+size_t HNSWIndex::memory_bytes() const noexcept {
+    return owned_.capacity() * sizeof(GameStateVec)
+         + external_ids_.capacity() * sizeof(uint32_t)
+         + levels_.capacity()
+         + links0_.capacity() * sizeof(uint32_t)
+         + upper_offset_.capacity() * sizeof(uint32_t)
+         + upper_links_.capacity() * sizeof(uint32_t);
+}
+
+size_t HNSWIndex::reachable_count() const {
+    if (size() == 0) return 0;
+    std::vector<bool> seen(size(), false);
+    std::vector<uint32_t> stack{entry_point_};
+    seen[entry_point_] = true;
+    size_t count = 0;
+    while (!stack.empty()) {
+        const uint32_t node = stack.back();
+        stack.pop_back();
+        ++count;
+        const uint32_t* ln = links(node, 0);
+        for (uint32_t j = 1; j <= ln[0]; ++j) {
+            if (!seen[ln[j]]) { seen[ln[j]] = true; stack.push_back(ln[j]); }
+        }
+    }
+    return count;
+}
+
+uint32_t* HNSWIndex::links(uint32_t node, size_t layer) noexcept {
+    if (layer == 0) return &links0_[static_cast<size_t>(node) * (M0_ + 1)];
+    return &upper_links_[upper_offset_[node] + (layer - 1) * (M_ + 1)];
+}
+
+const uint32_t* HNSWIndex::links(uint32_t node, size_t layer) const noexcept {
+    if (layer == 0) return &links0_[static_cast<size_t>(node) * (M0_ + 1)];
+    return &upper_links_[upper_offset_[node] + (layer - 1) * (M_ + 1)];
+}
 
 size_t HNSWIndex::random_level() {
     std::uniform_real_distribution<double> dist(0.0, 1.0);
     double r = dist(rng_);
-    // Avoid log(0)
     if (r < 1e-15) r = 1e-15;
     auto level = static_cast<size_t>(std::floor(-std::log(r) * m_L_));
-    // Cap at a reasonable maximum
     return std::min(level, size_t{16});
 }
 
-// ── Greedy search — descend from top layer to target layer ──────────────────
-
-size_t HNSWIndex::greedy_search(const GameStateVec& query, size_t entry,
-                                 size_t top_layer, size_t target_layer) const {
-    size_t cur = entry;
-    float cur_dist = l2_dist_sq(query, nodes_[cur].vec);
-
-    for (size_t layer = top_layer; layer > target_layer; --layer) {
+uint32_t HNSWIndex::greedy_descend(const GameStateVec& q, uint32_t entry,
+                                   size_t from_layer, size_t to_layer) const {
+    uint32_t cur = entry;
+    float cur_dist = l2_dist_sq(q, vec(cur));
+    for (size_t layer = from_layer; ; --layer) {
         bool improved = true;
         while (improved) {
             improved = false;
-            const auto& neighbors = nodes_[cur].neighbors[layer];
-            for (size_t neighbor : neighbors) {
-                float d = l2_dist_sq(query, nodes_[neighbor].vec);
-                if (d < cur_dist) {
-                    cur_dist = d;
-                    cur = neighbor;
-                    improved = true;
-                }
+            const uint32_t* ln = links(cur, layer);
+            for (uint32_t j = 1; j <= ln[0]; ++j) {
+                const float d = l2_dist_sq(q, vec(ln[j]));
+                if (d < cur_dist) { cur_dist = d; cur = ln[j]; improved = true; }
             }
         }
+        if (layer == to_layer) break;
     }
     return cur;
 }
 
-// ── Beam search at a single layer ───────────────────────────────────────────
-
-std::vector<std::pair<float, size_t>>
-HNSWIndex::search_layer(const GameStateVec& query, size_t entry,
-                          size_t ef, size_t layer) const {
-    // candidates: min-heap (closest first) for expansion
-    // results:    max-heap (furthest first) for pruning
-    using Entry = std::pair<float, size_t>;
-
-    float entry_dist = l2_dist_sq(query, nodes_[entry].vec);
+std::vector<std::pair<float, uint32_t>>
+HNSWIndex::search_layer(const GameStateVec& q, uint32_t entry, size_t ef, size_t layer) const {
+    using Entry = std::pair<float, uint32_t>;
+    auto& vis = visited_for(size());
 
     std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> candidates;
-    std::priority_queue<Entry> results;
-    std::unordered_set<size_t> visited;
+    std::priority_queue<Entry> best;   // max-heap: worst kept result on top
 
-    candidates.push({entry_dist, entry});
-    results.push({entry_dist, entry});
-    visited.insert(entry);
+    const float d0 = l2_dist_sq(q, vec(entry));
+    candidates.push({d0, entry});
+    best.push({d0, entry});
+    vis.tag[entry] = vis.cur;
 
     while (!candidates.empty()) {
-        auto [c_dist, c_id] = candidates.top();
-        float furthest_dist = results.top().first;
-
-        // If the closest candidate is further than the furthest result, stop.
-        if (c_dist > furthest_dist) break;
+        const auto [c_dist, c_id] = candidates.top();
+        if (c_dist > best.top().first && best.size() >= ef) break;
         candidates.pop();
 
-        // Expand neighbors at this layer.
-        const auto& neighbors = nodes_[c_id].neighbors[layer];
-        for (size_t neighbor : neighbors) {
-            if (visited.count(neighbor)) continue;
-            visited.insert(neighbor);
+        const uint32_t* ln = links(c_id, layer);
+        for (uint32_t j = 1; j <= ln[0]; ++j) {
+            const uint32_t nb = ln[j];
+            if (vis.tag[nb] == vis.cur) continue;
+            vis.tag[nb] = vis.cur;
 
-            float d = l2_dist_sq(query, nodes_[neighbor].vec);
-            furthest_dist = results.top().first;
-
-            if (d < furthest_dist || results.size() < ef) {
-                candidates.push({d, neighbor});
-                results.push({d, neighbor});
-                if (results.size() > ef) results.pop();
+            const float d = l2_dist_sq(q, vec(nb));
+            if (best.size() < ef || d < best.top().first) {
+                candidates.push({d, nb});
+                best.push({d, nb});
+                if (best.size() > ef) best.pop();
             }
         }
     }
 
-    // Extract results sorted by distance ascending.
-    std::vector<Entry> result_vec;
-    result_vec.reserve(results.size());
-    while (!results.empty()) {
-        result_vec.push_back(results.top());
-        results.pop();
-    }
-    std::reverse(result_vec.begin(), result_vec.end());
-    return result_vec;
+    std::vector<Entry> out(best.size());
+    for (size_t i = out.size(); i-- > 0;) { out[i] = best.top(); best.pop(); }
+    return out;
 }
 
-// ── Neighbor selection (simple: keep M closest) ─────────────────────────────
-
-std::vector<size_t>
-HNSWIndex::select_neighbors(const std::vector<std::pair<float, size_t>>& candidates,
-                              size_t M) {
-    // candidates are already sorted ascending by distance from search_layer.
-    std::vector<size_t> selected;
-    selected.reserve(std::min(candidates.size(), M));
-    for (size_t i = 0; i < std::min(candidates.size(), M); ++i) {
-        selected.push_back(candidates[i].second);
-    }
-    return selected;
-}
-
-// ── Shrink neighbor list to max_M ───────────────────────────────────────────
-
-void HNSWIndex::shrink_neighbors(size_t node_id, size_t layer, size_t max_M) {
-    auto& nbrs = nodes_[node_id].neighbors[layer];
-    if (nbrs.size() <= max_M) return;
-
-    // Re-rank by distance and keep closest max_M.
-    const auto& vec = nodes_[node_id].vec;
-    std::vector<std::pair<float, size_t>> scored;
-    scored.reserve(nbrs.size());
-    for (size_t n : nbrs) {
-        scored.push_back({l2_dist_sq(vec, nodes_[n].vec), n});
-    }
-    std::sort(scored.begin(), scored.end());
-
-    nbrs.clear();
-    nbrs.reserve(max_M);
-    for (size_t i = 0; i < max_M && i < scored.size(); ++i) {
-        nbrs.push_back(scored[i].second);
-    }
-}
-
-// ── Insert ──────────────────────────────────────────────────────────────────
-
-void HNSWIndex::insert(size_t id, const GameStateVec& vec) {
-    std::lock_guard<std::mutex> lock(build_mutex_);
-
-    size_t level = random_level();
-    size_t internal_id = nodes_.size();
-
-    Node node;
-    node.vec = vec;
-    node.external_id = id;
-    node.level = level;
-    node.neighbors.resize(level + 1);
-    nodes_.push_back(std::move(node));
-
-    if (num_elements_ == 0) {
-        // First element — just set as entry point.
-        entry_point_ = internal_id;
-        max_level_ = level;
-        ++num_elements_;
-        return;
-    }
-
-    // Phase 1: Greedy descent from top layer down to (level + 1).
-    size_t cur_entry = entry_point_;
-    if (max_level_ > level) {
-        cur_entry = greedy_search(vec, entry_point_, max_level_, level + 1);
-    }
-
-    // Phase 2: Insert at layers [min(level, max_level_) ... 0].
-    size_t insert_top = std::min(level, max_level_);
-    for (size_t lc = 0; lc <= insert_top; ++lc) {
-        size_t actual_layer = insert_top - lc;  // iterate top-down
-
-        auto candidates = search_layer(vec, cur_entry, ef_construction_, actual_layer);
-        size_t max_M = (actual_layer == 0) ? M_max0_ : M_;
-        auto neighbors = select_neighbors(candidates, max_M);
-
-        // Set this node's neighbors.
-        nodes_[internal_id].neighbors[actual_layer] = neighbors;
-
-        // Add bidirectional connections.
-        for (size_t neighbor : neighbors) {
-            nodes_[neighbor].neighbors[actual_layer].push_back(internal_id);
-            // Prune if over capacity.
-            shrink_neighbors(neighbor, actual_layer, max_M);
+void HNSWIndex::select_neighbors(std::vector<std::pair<float, uint32_t>>& cands,
+                                 size_t M) const {
+    if (cands.size() <= M) return;
+    std::vector<std::pair<float, uint32_t>> kept, pruned;
+    kept.reserve(M);
+    for (const auto& c : cands) {
+        if (kept.size() >= M) break;
+        bool diverse = true;
+        for (const auto& s : kept) {
+            if (l2_dist_sq(vec(c.second), vec(s.second)) < c.first) { diverse = false; break; }
         }
-
-        // Update entry for next layer down.
-        if (!candidates.empty()) {
-            cur_entry = candidates[0].second;
-        }
+        (diverse ? kept : pruned).push_back(c);
     }
-
-    // If the new node has a higher level, it becomes the entry point.
-    if (level > max_level_) {
-        entry_point_ = internal_id;
-        max_level_ = level;
+    for (const auto& p : pruned) {
+        if (kept.size() >= M) break;
+        kept.push_back(p);
     }
-
-    ++num_elements_;
+    cands.swap(kept);
 }
 
-// ── Search ──────────────────────────────────────────────────────────────────
+void HNSWIndex::connect(uint32_t node, size_t layer,
+                        const std::vector<std::pair<float, uint32_t>>& selected) {
+    const size_t max_links = (layer == 0) ? M0_ : M_;
+
+    uint32_t* own = links(node, layer);
+    own[0] = static_cast<uint32_t>(selected.size());
+    for (size_t i = 0; i < selected.size(); ++i) own[1 + i] = selected[i].second;
+
+    std::vector<std::pair<float, uint32_t>> merged;
+    for (const auto& [_, nb] : selected) {
+        uint32_t* nl = links(nb, layer);
+        if (nl[0] < max_links) { nl[1 + nl[0]++] = node; continue; }
+
+        // Neighbor is full: re-select among its links plus the new node.
+        merged.clear();
+        const GameStateVec& base = vec(nb);
+        for (uint32_t j = 1; j <= nl[0]; ++j) merged.push_back({l2_dist_sq(base, vec(nl[j])), nl[j]});
+        merged.push_back({l2_dist_sq(base, vec(node)), node});
+        std::sort(merged.begin(), merged.end());
+        select_neighbors(merged, max_links);
+        nl[0] = static_cast<uint32_t>(merged.size());
+        for (size_t i = 0; i < merged.size(); ++i) nl[1 + i] = merged[i].second;
+    }
+}
+
+void HNSWIndex::add_node(size_t external_id) {
+    const auto id    = static_cast<uint32_t>(levels_.size());
+    const size_t lvl = random_level();
+
+    levels_.push_back(static_cast<uint8_t>(lvl));
+    external_ids_.push_back(static_cast<uint32_t>(external_id));
+    links0_.resize(links0_.size() + M0_ + 1, 0);
+    upper_offset_.push_back(static_cast<uint32_t>(upper_links_.size()));
+    if (lvl > 0) upper_links_.resize(upper_links_.size() + lvl * (M_ + 1), 0);
+
+    if (id == 0) { entry_point_ = 0; max_level_ = lvl; return; }
+
+    const GameStateVec& q = vec(id);
+    uint32_t cur = entry_point_;
+    if (max_level_ > lvl) cur = greedy_descend(q, cur, max_level_, lvl + 1);
+
+    for (size_t layer = std::min(lvl, max_level_); ; --layer) {
+        auto cands = search_layer(q, cur, ef_construction_, layer);
+        cur = cands.front().second;
+        select_neighbors(cands, M_);
+        connect(id, layer, cands);
+        if (layer == 0) break;
+    }
+
+    if (lvl > max_level_) { max_level_ = lvl; entry_point_ = id; }
+}
+
+void HNSWIndex::insert(size_t id, const GameStateVec& v) {
+    owned_.push_back(v);
+    data_ = owned_.data();   // push_back may reallocate
+    add_node(id);
+}
 
 std::vector<std::pair<float, size_t>>
 HNSWIndex::search(const GameStateVec& query, size_t k, size_t ef) const {
-    if (num_elements_ == 0) return {};
-    if (ef == 0) ef = std::max(k, ef_construction_);
-    k = std::min(k, num_elements_);
+    if (size() == 0) return {};
+    k  = std::min(k, size());
+    ef = std::max(k, ef ? ef : ef_search_);
 
-    // Greedy descent from top layer to layer 1.
-    size_t entry = entry_point_;
-    if (max_level_ > 0) {
-        entry = greedy_search(query, entry_point_, max_level_, 1);
-    }
+    uint32_t entry = entry_point_;
+    if (max_level_ > 0) entry = greedy_descend(query, entry, max_level_, 1);
 
-    // Beam search at layer 0.
-    auto candidates = search_layer(query, entry, ef, 0);
+    const auto cands = search_layer(query, entry, ef, 0);
 
-    // Return top-k with external ids.
     std::vector<std::pair<float, size_t>> results;
-    results.reserve(std::min(k, candidates.size()));
-    for (size_t i = 0; i < std::min(k, candidates.size()); ++i) {
-        auto& [dist, internal_id] = candidates[i];
-        results.push_back({dist, nodes_[internal_id].external_id});
-    }
+    results.reserve(std::min(k, cands.size()));
+    for (size_t i = 0; i < std::min(k, cands.size()); ++i)
+        results.push_back({cands[i].first, external_ids_[cands[i].second]});
     return results;
 }
 
-// ── Batch build ─────────────────────────────────────────────────────────────
-
 void HNSWIndex::build(const std::vector<GameStateVec>& vectors) {
     auto log = cortex::get_logger("hnsw");
-    log->info("HNSW: building index over {} vectors (M={}, efConstruction={})",
+    log->info("HNSW: building over {} vectors (M={}, efConstruction={})",
               vectors.size(), M_, ef_construction_);
+    const auto t0 = std::chrono::steady_clock::now();
 
-    nodes_.reserve(vectors.size());
+    data_ = vectors.data();
+    levels_.reserve(vectors.size());
+    external_ids_.reserve(vectors.size());
+    links0_.reserve(vectors.size() * (M0_ + 1));
+    upper_offset_.reserve(vectors.size());
 
     for (size_t i = 0; i < vectors.size(); ++i) {
-        insert(i, vectors[i]);
-
-        if (i > 0 && i % 100'000 == 0) {
-            log->info("HNSW: inserted {}K / {}K vectors, max_level={}",
-                      i / 1000, vectors.size() / 1000, max_level_);
+        add_node(i);
+        if (i > 0 && i % 500'000 == 0) {
+            const double s = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - t0).count();
+            log->info("HNSW: {}K / {}K inserted ({:.0f} s)", i / 1000, vectors.size() / 1000, s);
         }
     }
 
-    log->info("HNSW: build complete — {} nodes, max_level={}", num_elements_, max_level_);
+    const double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    log->info("HNSW: build complete — {} nodes, max_level={}, {:.0f} MB, {:.1f} s",
+              size(), max_level_, memory_bytes() / (1024.0 * 1024.0), s);
 }
 
 } // namespace cortex::analytics

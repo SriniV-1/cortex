@@ -87,13 +87,19 @@ void handle_elo_history(Request& /*req*/, Response& res, ServerContext& ctx) {
 void handle_index_status(Request& /*req*/, Response& res, ServerContext& ctx) {
     json j;
     if (ctx.game_state_index && ctx.game_state_index->loaded()) {
+        const auto& idx = *ctx.game_state_index;
         j = {
-            {"loaded",   true},
-            {"size",     ctx.game_state_index->size()},
-            {"build_ms", static_cast<long long>(ctx.game_state_index->build_ms())}
+            {"loaded",        true},
+            {"size",          idx.size()},
+            {"build_ms",      static_cast<long long>(idx.build_ms())},
+            {"backend",       idx.hnsw_ready() ? "hnsw" : "exact_simd"},
+            {"hnsw_ready",    idx.hnsw_ready()},
+            {"hnsw_build_ms", static_cast<long long>(idx.hnsw_build_ms())},
+            {"ef_search",     idx.hnsw_ef_search()}
         };
     } else {
-        j = {{"loaded", false}, {"size", 0}, {"build_ms", 0}};
+        j = {{"loaded", false}, {"size", 0}, {"build_ms", 0},
+             {"backend", "none"}, {"hnsw_ready", false}};
     }
     res.json(j.dump());
 }
@@ -149,6 +155,7 @@ void handle_similarity(Request& req, Response& res, ServerContext& ctx) {
             {"momentum",   momentum}
         }},
         {"query_ms",   std::round(qms * 100.0) / 100.0},
+        {"backend",    ctx.game_state_index->hnsw_ready() ? "hnsw" : "exact_simd"},
         {"index_size", ctx.game_state_index->size()},
         {"results",    std::move(results)}
     };

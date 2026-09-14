@@ -322,7 +322,13 @@ void IngestorNode::poll_game(const std::string& game_id, int64_t epoch) {
         }
     }
 
+    // A newly assigned game starts with empty accumulator state on this worker.
+    // The first successful fetch replays the game's full play-by-play from S3
+    // (watermark 0) through the ring buffer, rebuilding per-game stats before
+    // incremental polling takes over.
     int64_t watermark = 0;
+    bool replayed = false;
+    const auto replay_start = std::chrono::steady_clock::now();
 
     while (!stop_flag_.load()) {
         // Check if still active.
@@ -358,7 +364,13 @@ void IngestorNode::poll_game(const std::string& game_id, int64_t epoch) {
                 total_events_.fetch_add(1);
             }
 
-            if (pushed > 0) {
+            if (!replayed) {
+                replayed = true;
+                const double ms = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - replay_start).count();
+                log->info("Game {}: rebuilt state from S3 replay — {} events in {:.0f} ms (epoch={})",
+                          game_id, pushed, ms, epoch);
+            } else if (pushed > 0) {
                 log->debug("Game {}: pushed {} new events (watermark={})",
                            game_id, pushed, watermark);
             }

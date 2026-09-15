@@ -2,13 +2,13 @@
 
 ## Handoff Document for Resume / LinkedIn
 
-Use this document to craft resume bullet points, LinkedIn project descriptions, and portfolio entries. Everything below is factual and verified against the codebase.
+Use this document for resume bullets, LinkedIn descriptions and portfolio entries. Numbers below were re-checked against the code and README on 2026-09-15.
 
 ---
 
 ## One-Liner
 
-**Cortex** is a high-performance real-time NBA analytics engine built from scratch in C++20 that ingests 4.7 million play-by-play events, serves sub-20ms queries via a custom HTTP/WebSocket server, and computes live win probabilities using SIMD-accelerated similarity search and an Elo-powered ML model.
+**Cortex** is a real-time NBA analytics engine built from scratch in C++20. It ingests 4.7 million play-by-play events, serves sub-20ms queries through a hand-written HTTP/WebSocket server, finds similar historical game states with a hand-rolled HNSW index, and computes live win probabilities with an Elo-powered ONNX model.
 
 ---
 
@@ -16,44 +16,48 @@ Use this document to craft resume bullet points, LinkedIn project descriptions, 
 
 | Dimension | Detail |
 |-----------|--------|
-| **Language** | C++20 (5,369 lines production + 1,625 lines tests) |
+| **Language** | C++20 (~10,100 lines production, ~3,800 lines tests) |
 | **Database** | PostgreSQL 15 with native range partitioning (4.7M rows across 6 time-based partitions) |
-| **Data Scale** | 8,425 NBA games, 1,200 players, 30 teams, 4.7M play events (2019–2026 seasons) |
+| **Data Scale** | 8,400+ NBA games, 1,250 players, 30 teams, 4.7M play events (2019–2026 seasons) |
 | **Data Source** | NBA's S3 public API — play-by-play, boxscores, live scoreboards |
-| **ML Model** | Logistic regression via ONNXRuntime — 7-feature win probability (75.5% accuracy, 0.837 AUC) |
-| **Frontend** | Single-page dashboard (961 lines HTML/CSS/JS) with real-time WebSocket updates |
-| **Build System** | CMake 3.20+ targeting Ninja, 7 executables + 4 static libraries |
+| **ML Model** | Logistic regression via ONNX Runtime — 7-feature win probability (75.5% accuracy, 0.837 AUC) |
+| **Distributed** | gRPC coordinator + N workers, consistent-hash game assignment, failure detection, epoch fencing |
+| **Frontend** | Vanilla HTML/CSS/JS dashboard (~2,100 lines) with real-time WebSocket updates |
+| **Deploy** | Public HTTPS demo on one AWS Graviton (arm64) EC2 instance, provisioned with Terraform, Caddy for TLS |
+| **Build System** | CMake + Ninja: 9 executables (+2 optional libFuzzer targets), 6 static libraries |
 
 ---
 
-## Architecture (4 Layers)
+## Architecture
 
 ### 1. ETL Pipeline (ingestion)
-- **NBAClient**: Fetches play-by-play and boxscore JSON from NBA's S3 CDN using libcurl + simdjson parsing
-- **BulkInserter**: Streams rows into PostgreSQL using the COPY binary protocol (~50K rows/sec), with per-game transactional idempotency via an `etl_progress` tracking table
-- **LiveIngestor**: Background thread polls the NBA scoreboard API every 30s during live games, using per-game watermark tracking to inject only new events into the stream pipeline
-- Multi-threaded season loading with early termination (stops after 30 consecutive missing game IDs)
-- Supports regular season + playoffs with deterministic game ID generation
+- **NBAClient**: fetches play-by-play and boxscore JSON from NBA's S3 CDN with libcurl, parsed by simdjson
+- **BulkInserter**: streams rows into PostgreSQL with the COPY protocol (~50K rows/sec), per-game transactional idempotency via an `etl_progress` table
+- **LiveIngestor**: background thread polls the NBA scoreboard during live games and injects only new events (per-game watermarks); backs `/api/scoreboard`
+- Startup refresh catches up on any games missed while the server was down
 
 ### 2. Stream Processing (real-time)
-- **Lock-free SPSC ring buffer** (65,536 slots) with cache-line-padded atomics to eliminate false sharing — benchmarked at **8.7 million events/sec** on Apple Silicon
-- **StatAccumulator**: Maintains per-player, per-game atomic counters (points, rebounds, assists, FG%, etc.) with rolling-window momentum calculation
-- **StreamProcessor**: Consumer thread drains the ring buffer and invokes per-event callbacks for downstream subscribers (WebSocket broadcast, stat updates)
+- **Lock-free SPSC ring buffer** (65,536 slots) with cache-line-padded atomics — benchmarked at **8.7M events/sec**
+- **StatAccumulator**: per-player, per-game atomic counters with rolling-window momentum
+- **StreamProcessor**: consumer thread drains the ring buffer and fans events out to WebSocket broadcast and stat updates
 
-### 3. Analytics Layer (intelligence)
-- **SIMD Similarity Search (GameStateIndex)**: Encodes each of 4.7M play events into 8-dimensional feature vectors (32-byte aligned), then performs brute-force L2 distance scan using **ARM NEON intrinsics** (`vld1q_f32`, `vfmaq_f32`, `vaddvq_f32`). Top-K results via min-heap with threshold pruning. **Query latency: ~6ms p99** across the full 4.7M event corpus (142 MB feature store)
-- **Elo Rating System (EloTracker)**: Computes team strength from 8,400+ game results using standard Elo with K=20 (regular season), K=32 (playoffs), 100-point home court advantage, and 25% season regression to mean. Builds in ~47ms
-- **Win Probability Model**: ONNX logistic regression trained on 42K game-state samples with 7 features: score differential, quarter, seconds remaining, home advantage, momentum, **Elo difference, and Elo expected win probability**. Achieves **75.5% accuracy and 0.837 AUC**. Inference via ONNXRuntime (~0.1ms per prediction)
+### 3. Analytics Layer
+- **HNSW similarity search (GameStateIndex)**: each event becomes an 8-float feature vector (142 MB feature store). Identical states are merged first (4.67M events → 2.89M unique states), then a hand-rolled HNSW graph is built (M=16, efConstruction=200). At ef=64 it reaches **0.978 recall@10 at 0.033 ms p99** on 1,000 realistic game-state queries, ~147x faster than the exact scan
+- **Exact ARM NEON scan**: brute-force L2 with `vld1q_f32` / `vfmaq_f32` / `vaddvq_f32` and a top-K heap (4.3 ms p99). Serves queries while the graph builds at startup and is the ground truth for recall
+- **Elo ratings (EloTracker)**: 8,400+ game results, K=20 regular season / K=32 playoffs, 100-point home advantage, 25% season regression; builds in ~47 ms; history exposed at `/api/elo/history`
+- **Win probability model**: ONNX logistic regression trained on 42K game-state samples, 7 features including Elo difference and Elo expected win probability; ~0.1 ms inference
 
-### 4. Serving Layer (delivery)
-- **Custom HTTP/1.1 + WebSocket server** built on llhttp parser + platform-native I/O multiplexing:
-  - **kqueue** on macOS (edge-triggered, pipe-based wakeup)
-  - **epoll** on Linux (semantically equivalent, eventfd wakeup)
-  - Abstracted behind an `IOPoller` interface — compile-time platform selection
-- **12 REST API endpoints**: health, metrics (Prometheus), leaderboard, recent games, player/game/event search, similarity search, Elo rankings, index status, player season stats, dashboard stats
-- **WebSocket real-time broadcast**: Clients subscribe to a game ID; each play event is enriched with win probability and broadcast as JSON frames. RFC 6455 handshake with SHA-1/base64 validation
-- **Redis cache-aside** (hiredis): 60s TTL on game stats, 5-minute TTL on similarity results
-- **Materialized views** for instant leaderboard queries (player_game_stats pre-aggregated from 4.7M events, refreshed after each ETL load)
+### 4. Serving Layer
+- **Custom HTTP/1.1 + WebSocket server** on llhttp with kqueue (macOS) / epoll (Linux) behind an `IOPoller` interface, trie-based router
+- **21 routes**: health, readiness, Prometheus metrics, stats, leaderboard, player/game/event search, recent games, live scoreboard, Elo rankings + history, similarity search, index status, per-game live stats, player season stats, WebSocket live stream, OpenAPI spec + docs page, JWT token issuance
+- **WebSocket broadcast**: clients subscribe to a game; each play event is enriched with win probability. RFC 6455 handshake; per-connection outbound queue capped at 1,024 frames
+- **Auth**: JWT + RBAC on non-exempt routes when a secret is configured; the public demo runs read-only without it
+- **Redis cache-aside** (hiredis) on game stats and similarity results
+- **OpenAPI 3.0.3 spec** served at `/api/openapi.json` with an interactive docs page at `/docs`
+
+### 5. Distributed Mode
+- **Coordinator** (gRPC) assigns live games to worker nodes over a consistent-hash ring, detects dead workers, and uses epoch fencing so a stale worker can't keep writing after reassignment
+- Each worker runs its own NBAClient + RingBuffer + StreamProcessor; `docker-compose.cluster.yml` brings up a local cluster
 
 ---
 
@@ -61,73 +65,79 @@ Use this document to craft resume bullet points, LinkedIn project descriptions, 
 
 | Benchmark | Result | Method |
 |-----------|--------|--------|
+| Similarity search, HNSW ef=64 (4.7M events) | **0.033 ms p99, 0.978 recall@10** | Hand-rolled HNSW over deduplicated states |
+| Similarity search, exact scan (4.7M events) | **4.3 ms p99** | ARM NEON brute-force L2 |
 | Ring buffer throughput | **8.7M events/sec** | SPSC lock-free with cache-line padding |
-| Similarity search (4.7M vectors) | **~6ms p99** | ARM NEON SIMD brute-force L2 scan |
-| Query latency (game events) | **3.2ms p99** | PostgreSQL with partition pruning |
-| Query latency (player season) | **6.3ms p99** | Materialized view aggregation |
-| WebSocket broadcast (1000 clients) | **15.6ms p99** | kqueue event loop + frame batching |
-| Win probability inference | **~0.1ms** | ONNXRuntime single-threaded |
-| Elo build (8,400 games) | **47ms** | In-memory chronological scan |
+| Query latency (game events) | **3.2 ms p99** | PostgreSQL partition pruning |
+| Query latency (player season) | **6.3 ms p99** | Materialized view aggregation |
+| WebSocket broadcast (1,000 clients) | **15.6 ms p99** | kqueue event loop |
+| Win probability inference | **~0.1 ms** | ONNX Runtime |
+| Elo build (8,400+ games) | **47 ms** | In-memory chronological scan |
+
+---
+
+## Testing and Hardening
+
+- **136 tests**: 116 GoogleTest unit tests across 18 suites, 14 RapidCheck property tests, 6 integration tests against a real PostgreSQL
+- **libFuzzer** harnesses for the HTTP parser and WebSocket frame decoder
+- **AddressSanitizer + UBSan**: Debug builds compile with `-fsanitize=address,undefined`; CI runs the suites on Ubuntu Release, Ubuntu Debug (sanitized) and macOS Release
+- Four benchmark binaries: query latency, ring buffer throughput, WebSocket load, HNSW vs exact scan
 
 ---
 
 ## Database Design
 
-- **Range-partitioned play_events table** across 6 time-based partitions (2000–2029), enabling partition pruning for time-range queries
+- **Range-partitioned play_events** across 6 time-based partitions (2000–2029) for partition pruning
 - **Composite primary key** (event_id, occurred_at) for partition-aligned uniqueness
-- **4 covering indexes** on play_events: game lookup, player history, action type filter, time-range scan
-- **Materialized view** (player_game_stats) with concurrent refresh — pre-computes box-score stats for all 1,200 players across 4.7M events
-- **ON CONFLICT DO NOTHING** for fully idempotent ETL — safe to re-run any season without duplicates
-- JSONB qualifiers column preserving raw NBA API data for future analytics
+- **4 covering indexes**: game lookup, player history, action type filter, time-range scan
+- **Materialized view** `player_game_stats` with concurrent refresh — box-score stats for all 1,250 players across 4.7M events
+- **ON CONFLICT DO NOTHING** for idempotent ETL
+- JSONB qualifiers column preserving raw NBA API data
 
 ---
 
 ## Technologies Used
 
-**Core**: C++20, PostgreSQL 15, Redis 7, CMake 3.20+
+**Core**: C++20, PostgreSQL 15, Redis 7, gRPC + Protocol Buffers, CMake
 
-**Libraries**: libpqxx (PostgreSQL C++ driver), spdlog (structured logging), simdjson (SIMD JSON parsing), llhttp (HTTP parser), ONNXRuntime (ML inference), libcurl (HTTP client), hiredis (Redis client), OpenSSL (TLS/SHA-1), Google Test (unit testing)
+**Libraries**: libpqxx, spdlog, simdjson, llhttp, ONNX Runtime, libcurl, hiredis, OpenSSL, GoogleTest, RapidCheck, nlohmann/json
 
-**Systems Programming**: ARM NEON SIMD intrinsics, kqueue/epoll I/O multiplexing, lock-free data structures (SPSC queue with acquire/release atomics), cache-line padding for false sharing elimination, WebSocket RFC 6455
+**Systems Programming**: HNSW approximate nearest neighbor search, ARM NEON SIMD intrinsics, kqueue/epoll I/O multiplexing, lock-free SPSC queue, cache-line padding, WebSocket RFC 6455, consistent hashing, epoch fencing
 
-**ML/Analytics**: Elo rating system, logistic regression (scikit-learn → ONNX export), L2 distance brute-force with SIMD vectorization, feature engineering from play-by-play data
+**ML/Analytics**: Elo ratings, logistic regression (scikit-learn → ONNX), feature engineering from play-by-play data
 
-**Frontend**: Vanilla HTML/CSS/JS single-page app with WebSocket real-time updates, debounced search, interactive stat tabs, gradient-styled visualizations
+**Infra**: Docker, Docker Compose, Terraform, AWS EC2 Graviton, Caddy, GitHub Actions CI, Prometheus metrics
 
 ---
 
-## Codebase Statistics
+## Codebase Statistics (tracked files)
 
 | Component | Lines | Files |
 |-----------|-------|-------|
-| C++ source (.cpp) | 4,062 | 13 |
-| C++ headers (.hpp) | 1,307 | 11 |
-| Unit tests + benchmarks | 1,625 | 8 |
-| Frontend (HTML/CSS/JS) | 961 | 1 |
+| C++ source (.cpp) | 7,255 | 31 |
+| C++ headers (.hpp/.h) | 2,891 | 43 |
+| Tests + benchmarks + fuzz | 3,766 | 19 |
+| Frontend (HTML/CSS/JS) | 2,136 | 6 |
 | SQL schema | 228 | 1 |
-| Shell + Python scripts | 593 | 3 |
-| CMake build | 195 | 1 |
-| **Total** | **~8,970** | **38** |
+| Scripts | 376 | 2 |
+| Protobuf | 80 | 1 |
+| Terraform | 171 | 4 |
+| CMake build | 358 | 1 |
+| **Total** | **~17,260** | **108** |
 
 ---
 
-## Resume Bullet Points (pick 3-5)
+## Resume Bullet Points
 
-- Built a **real-time NBA analytics engine in C++20** processing 4.7M play-by-play events with sub-20ms query latency, featuring a custom HTTP/WebSocket server, SIMD-accelerated similarity search, and Elo-powered win probability model
-- Designed a **lock-free SPSC ring buffer** with cache-line-padded atomics achieving 8.7M events/sec throughput for real-time stream processing on Apple Silicon
-- Implemented **ARM NEON SIMD brute-force similarity search** across 4.7M game-state vectors (142 MB feature store) with ~6ms p99 query latency using vectorized L2 distance computation
-- Built a **custom HTTP/1.1 + WebSocket server** from scratch using llhttp, kqueue/epoll I/O multiplexing, and Redis cache-aside pattern, supporting 1000 concurrent WebSocket clients at 15.6ms p99 broadcast latency
-- Trained an **Elo-enhanced win probability model** (7-feature logistic regression, 0.837 AUC) computed from 8,400+ game results, with real-time inference via ONNXRuntime during live NBA games
-- Engineered a **PostgreSQL ETL pipeline** with range-partitioned tables, COPY protocol bulk loading (~50K rows/sec), materialized views, and idempotent upserts for 4.7M event ingestion across 7 NBA seasons
-- Designed a **platform-agnostic I/O multiplexing layer** abstracting kqueue (macOS) and epoll (Linux) behind a common interface, with edge-triggered event handling and pipe/eventfd wakeup mechanisms
+The current resume (`CS Projects/resume/resume.tex`) is the source of truth for bullet wording. Pull numbers only from the tables above.
 
 ---
 
 ## LinkedIn Project Description (Short)
 
-**Cortex — Real-Time NBA Analytics Engine** | C++20, PostgreSQL, Redis, ONNX, ARM NEON SIMD
+**Cortex — Real-Time NBA Analytics Engine** | C++20, PostgreSQL, Redis, gRPC, ONNX Runtime
 
-Built a high-performance analytics system from scratch that ingests 4.7M NBA play-by-play events and serves real-time insights. Features include a custom HTTP/WebSocket server with kqueue/epoll I/O multiplexing (1000-client broadcast at 15.6ms p99), SIMD-accelerated similarity search across game states (~6ms p99 over 142MB feature store), an Elo rating system computing team strength from 8,400+ games, and a 7-feature win probability model achieving 0.837 AUC. Lock-free stream processing pipeline benchmarked at 8.7M events/sec. PostgreSQL schema uses range partitioning with materialized views and COPY protocol bulk loading.
+Built a real-time NBA analytics engine from scratch that ingests 4.7M play-by-play events. It runs a hand-written HTTP/WebSocket server on kqueue/epoll (1,000-client broadcast at 15.6ms p99), a hand-rolled HNSW index for game-state similarity (0.978 recall@10 at 0.033ms p99), a lock-free ingest pipeline benchmarked at 8.7M events/sec, and an Elo-enhanced win probability model served through ONNX Runtime. A gRPC coordinator shards live games across workers with failure detection and epoch fencing. Deployed as a public HTTPS demo on AWS Graviton with Terraform.
 
 ---
 
@@ -135,14 +145,14 @@ Built a high-performance analytics system from scratch that ingests 4.7M NBA pla
 
 **Cortex — Real-Time NBA Analytics Engine**
 
-A full-stack analytics platform built from scratch in C++20 that processes 4.7 million NBA play-by-play events across 7 seasons (2019–2026) to deliver real-time game insights.
+A full-stack analytics platform built from scratch in C++20 that processes 4.7 million NBA play-by-play events across 7 seasons (2019–2026).
 
-**Data Pipeline**: Custom ETL system fetches play-by-play data from the NBA's S3 API, parses JSON with simdjson, and bulk-loads into PostgreSQL 15 using the COPY binary protocol at ~50K rows/sec. Range-partitioned tables across 6 time-based partitions enable partition pruning for sub-millisecond queries. Fully idempotent with ON CONFLICT upserts and per-game progress tracking.
+**Data Pipeline**: A custom ETL fetches play-by-play data from the NBA's S3 API, parses it with simdjson and bulk-loads PostgreSQL 15 over the COPY protocol at ~50K rows/sec. Range-partitioned tables allow partition pruning, and every load is idempotent.
 
-**Stream Processing**: Lock-free single-producer/single-consumer ring buffer (65,536 slots) with cache-line-padded atomics achieves 8.7M events/sec throughput. Real-time stat accumulation uses atomic counters with acquire/release memory ordering — no mutexes in the hot path.
+**Stream Processing**: A lock-free single-producer/single-consumer ring buffer (65,536 slots) with cache-line-padded atomics handles 8.7M events/sec. Stat accumulation uses atomic counters, with no mutexes in the hot path.
 
-**Analytics**: ARM NEON SIMD brute-force similarity search encodes 4.7M events into 8D feature vectors and scans the full corpus in ~6ms p99. Team Elo ratings computed from 8,400+ game results (K-factor adaptation for playoffs, season regression). Win probability model trained via scikit-learn (7 features including Elo, 0.837 AUC), exported to ONNX for ~0.1ms inference via ONNXRuntime.
+**Analytics**: Game states are encoded as 8-float vectors, deduplicated from 4.67M events to 2.89M unique states, and indexed with a hand-rolled HNSW graph that answers at 0.033ms p99 with 0.978 recall@10. An exact ARM NEON scan (4.3ms p99) serves during startup and is the recall reference. Team Elo comes from 8,400+ games, and a 7-feature logistic regression (0.837 AUC) runs through ONNX Runtime in ~0.1ms.
 
-**Serving**: Custom HTTP/1.1 + WebSocket server built on llhttp with kqueue (macOS) / epoll (Linux) I/O multiplexing. 12 REST endpoints with Redis cache-aside pattern. WebSocket broadcast delivers play events enriched with win probability to 1000 concurrent clients at 15.6ms p99. Single-page dashboard with real-time updates, interactive stat tabs, player/game/event search, and Elo power rankings.
+**Serving**: A custom HTTP/1.1 + WebSocket server on llhttp with kqueue/epoll exposes 21 routes, Redis cache-aside and an OpenAPI spec. WebSocket broadcast delivers win-probability-enriched plays to 1,000 concurrent clients at 15.6ms p99.
 
-**Scale**: 5,369 lines C++20, 1,625 lines tests (GTest + 4 benchmark suites), PostgreSQL 15, Redis 7, CMake build system targeting 7 executables + 4 static libraries.
+**Distributed + Ops**: A gRPC coordinator assigns games to workers over a consistent-hash ring with failure detection and epoch fencing. 136 tests (unit, property-based, integration) plus libFuzzer harnesses run in CI, including a sanitized Debug build. The public demo runs on AWS Graviton, provisioned with Terraform.

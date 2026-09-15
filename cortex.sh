@@ -290,7 +290,7 @@ cmd_bench() {
   lsof -ti tcp:19090 | xargs kill -9 2>/dev/null || true
   "$BUILD_DIR/cortex_ws_load"
 
-  echo -e "\n  ${BOLD}Similarity Index Benchmark (SIMD scan, 3.7M events)${NC}\n"
+  echo -e "\n  ${BOLD}Similarity Index Benchmark (HNSW vs exact NEON scan, 4.7M events)${NC}\n"
   "$BUILD_DIR/cortex_similarity" "host=localhost port=$PGPORT dbname=$DBNAME"
 }
 
@@ -300,7 +300,7 @@ cmd_help() {
   echo -e "  ${GREEN}start${NC}    Start all services and open the dashboard  ${DIM}(default)${NC}"
   echo -e "  ${GREEN}stop${NC}     Stop the Cortex server"
   echo -e "  ${GREEN}status${NC}   Show what's running"
-  echo -e "  ${GREEN}load${NC}     Load 6,637 games of NBA data (one-time, ~20 min)"
+  echo -e "  ${GREEN}load${NC}     Load 8,400+ games of NBA data (one-time, ~20 min)"
   echo -e "  ${GREEN}bench${NC}    Run latency and throughput benchmarks"
   echo
   echo -e "  First time? Run: ${BOLD}./cortex.sh load${NC} then ${BOLD}./cortex.sh start${NC}"

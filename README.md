@@ -279,7 +279,7 @@ The single-page dashboard at `http://localhost:8080` provides:
 - **Leaderboard** — top players by PPG/RPG/SPG/BPG/FG%/FT% with tab switching and player search (debounced API calls)
 - **Recent Games** — filterable by All/Regular/Playoffs with team search
 - **Live Stream** — auto-subscribes to live NBA games via WebSocket; click any live game to switch subscription
-- **Game State Search** — enter a game scenario (scores, quarter, clock, teams) to find the 10 closest historical matches via SIMD vector search. Team inputs have autofill dropdown ranked by Elo. Shows combined win probability (60% historical + 40% Elo).
+- **Game State Search** — enter a game scenario (scores, quarter, clock, teams) to find the 10 closest historical matches via HNSW similarity search. Team inputs have autofill dropdown ranked by Elo. Shows combined win probability (60% historical + 40% Elo).
 - **Team Power Rankings** — all 30 teams ranked by Elo. Click any team to open a modal showing detailed stats (rating, delta from 1500, win %, games played) and a full explanation of how Elo is calculated.
 
 ---
@@ -289,6 +289,7 @@ The single-page dashboard at `http://localhost:8080` provides:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Service health check |
+| `GET` | `/ready` | Readiness probe: 200 once the database is up and the similarity index is loaded, 503 before |
 | `GET` | `/metrics` | Prometheus metrics (`cortex_events_processed`) |
 | `GET` | `/api/stats` | Dashboard stats (total games, events, players) |
 | `GET` | `/api/leaderboard?stat=ppg` | Top 20 players by stat (ppg/rpg/spg/bpg/fg_pct/ft_pct) |
@@ -298,10 +299,15 @@ The single-page dashboard at `http://localhost:8080` provides:
 | `GET` | `/api/events/search?player_id=&action_type=` | Play event search with whitelist validation |
 | `GET` | `/api/similar` | HNSW similarity search (see below) |
 | `GET` | `/api/elo` | Team Elo ratings ranked by strength |
+| `GET` | `/api/elo/history` | Elo rating history by season |
+| `GET` | `/api/scoreboard` | Live scoreboard snapshot from the live ingestor |
 | `GET` | `/api/index/status` | Similarity index status: size, serving backend (`hnsw` / `exact_simd`), HNSW build time |
 | `GET` | `/stats/{gameId}` | Live game score + event count (Redis-cached 60s) |
 | `GET` | `/players/{playerId}/season` | Player season aggregates |
 | `GET` | `/live/{gameId}` | WebSocket upgrade — streams live play events with win probability |
+| `GET` | `/api/openapi.json` | OpenAPI 3.0.3 spec for every route |
+| `GET` | `/docs` | Interactive API docs rendered from the OpenAPI spec |
+| `POST` | `/api/auth/token` | Issues a JWT (API-key gated; only relevant when auth is enabled) |
 
 ### Similarity Search — `GET /api/similar`
 
@@ -389,7 +395,7 @@ The server is designed for long-running deployment with no memory leaks:
 - **StatAccumulator eviction** — a background thread runs every 10 minutes and evicts in-memory stat entries for games with no activity in the last 4 hours
 - **WebSocket backpressure** — per-connection outbound frame queue capped at 1024 frames; slow clients that exceed the cap are disconnected
 - **Graceful shutdown** — all background threads use interruptible sleep (1-second tick checking `stop_requested()`); explicit `request_stop()` + `join()` in controlled order before locals destruct
-- **AddressSanitizer clean** — all 29 tests pass under ASan with zero errors
+- **AddressSanitizer + UBSan clean** — Debug builds compile with `-fsanitize=address,undefined`, and the CI Debug job runs the unit, property and integration suites on that build
 
 ---
 
@@ -399,7 +405,7 @@ The server is designed for long-running deployment with no memory leaks:
 cd build && ctest --output-on-failure
 ```
 
-43+ tests across 12 suites: NBAClient, BulkInserter, RingBuffer, StatAccumulator, StreamProcessor, WinProbModel, KqueuePoller, HttpServer, RedisCache, Router, ConsistentHashRing, and more. Plus property-based tests (RapidCheck) and fuzz harnesses (libFuzzer).
+136 tests: 116 unit tests across 18 suites (NBAClient, BulkInserter, RingBuffer, StatAccumulator, StreamProcessor, WinProbModel, KqueuePoller, HttpServer, RedisCache, Router, ConsistentHashRing, and more), 14 RapidCheck property tests and 6 integration tests. Plus libFuzzer harnesses for the HTTP parser and WebSocket frame decoder.
 
 Benchmarks:
 ```bash
@@ -496,7 +502,7 @@ Cortex/
 │   ├── analytics/
 │   └── distributed/
 ├── tests/
-│   ├── unit/                       <- 43+ gtest tests across 12 suites
+│   ├── unit/                       <- 116 gtest tests across 18 suites
 │   ├── property/                   <- RapidCheck property-based tests
 │   ├── fuzz/                       <- libFuzzer harnesses (HTTP parser, WS frames)
 │   ├── integration/                <- end-to-end tests (DB, API, Elo)

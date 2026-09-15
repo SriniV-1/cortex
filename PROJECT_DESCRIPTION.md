@@ -18,7 +18,7 @@ Use this document for resume bullets, LinkedIn descriptions and portfolio entrie
 |-----------|--------|
 | **Language** | C++20 (~10,100 lines production, ~3,800 lines tests) |
 | **Database** | PostgreSQL 15 with native range partitioning (4.7M rows across 6 time-based partitions) |
-| **Data Scale** | 8,400+ NBA games, 1,250 players, 30 teams, 4.7M play events (2019–2026 seasons) |
+| **Data Scale** | 8,400+ NBA games, ~1,200 players, 30 teams, 4.7M play events (2019–2026 seasons) |
 | **Data Source** | NBA's S3 public API — play-by-play, boxscores, live scoreboards |
 | **ML Model** | Logistic regression via ONNX Runtime — 7-feature win probability (75.5% accuracy, 0.837 AUC) |
 | **Distributed** | gRPC coordinator + N workers, consistent-hash game assignment, failure detection, epoch fencing |
@@ -90,7 +90,7 @@ Use this document for resume bullets, LinkedIn descriptions and portfolio entrie
 - **Range-partitioned play_events** across 6 time-based partitions (2000–2029) for partition pruning
 - **Composite primary key** (event_id, occurred_at) for partition-aligned uniqueness
 - **4 covering indexes**: game lookup, player history, action type filter, time-range scan
-- **Materialized view** `player_game_stats` with concurrent refresh — box-score stats for all 1,250 players across 4.7M events
+- **Materialized view** `player_game_stats` with concurrent refresh — box-score stats for all ~1,200 players across 4.7M events
 - **ON CONFLICT DO NOTHING** for idempotent ETL
 - JSONB qualifiers column preserving raw NBA API data
 

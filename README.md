@@ -138,7 +138,7 @@ cmake --build build -j$(sysctl -n hw.logicalcpu)
 ./cortex.sh load
 ```
 
-Takes ~15–20 min. Loads 8,400+ games / 4.7M events / 30 teams / 1,250 players.
+Takes ~15–20 min. Loads 8,400+ games / 4.7M events / 30 teams / ~1,200 players.
 After the initial load, the server keeps data current automatically — see [Data Freshness](#data-freshness).
 
 ### 4 — Start the server
@@ -427,7 +427,7 @@ Or run all at once:
 - **Range-partitioned `play_events`** across 6 time-based partitions (2000-2029), enabling partition pruning for time-range queries
 - **Composite primary key** `(event_id, occurred_at)` for partition-aligned uniqueness
 - **4 covering indexes**: game lookup, player history, action type filter, time-range scan
-- **Materialized view** `player_game_stats` with concurrent refresh — pre-computes box-score stats for all 1,250 players across 4.7M events
+- **Materialized view** `player_game_stats` with concurrent refresh — pre-computes box-score stats for all ~1,200 players across 4.7M events
 - **`team_elo` table** — Elo ratings persisted after each build
 - **`ON CONFLICT DO NOTHING`** for fully idempotent ETL — safe to re-run any season
 - **JSONB qualifiers column** preserving raw NBA API data for future analytics

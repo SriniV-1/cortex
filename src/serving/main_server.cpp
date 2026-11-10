@@ -423,6 +423,8 @@ int main(int argc, char** argv) {
     HttpServer::Config server_cfg;
     server_cfg.port              = port;
     server_cfg.db_conn_str       = db_conn;
+    server_cfg.redis_host        = redis_host;   // without these the server's cache fell back to 127.0.0.1
+    server_cfg.redis_port        = redis_port;
     server_cfg.www_root          = www_root;
     server_cfg.game_state_index  = &sim_index;
     server_cfg.elo_tracker       = &elo_tracker;
